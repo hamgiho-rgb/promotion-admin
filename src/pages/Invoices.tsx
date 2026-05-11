@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Invoice, InvoiceItem } from '@/lib/types'
-import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea } from '@/components/ui'
+import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
 import { exportInvoiceReceipt, exportInvoiceReceiptsMulti } from '@/lib/exportXlsx'
+import { useBulkSelect } from '@/hooks/useBulkSelect'
 
 /* ──────────────────────────────────────────────────────────
  * 계산서/영수증 페이지
@@ -21,6 +22,7 @@ export default function InvoicesPage() {
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Invoice | null>(null)
  const [vendorFilter, setVendorFilter] = useState<string>('all')
+ const bulk = useBulkSelect()
 
  async function load() {
  setLoading(true)
@@ -44,6 +46,16 @@ export default function InvoicesPage() {
  const { error } = await supabase.from('invoices').delete().eq('id', i.id)
  if (error) return alert(error.message)
  load()
+ }
+
+ async function handleBulkDelete() {
+   const ids = Array.from(bulk.selected)
+   if (ids.length === 0) return
+   if (!confirm(`선택한 ${ids.length}건의 계산서를 삭제할까요?\n(라인 항목까지 함께 삭제됩니다. 되돌릴 수 없어요.)`)) return
+   const { error } = await supabase.from('invoices').delete().in('id', ids)
+   if (error) return alert(error.message)
+   bulk.clear()
+   load()
  }
 
  async function exportOne(inv: Invoice) {
@@ -132,6 +144,8 @@ export default function InvoicesPage() {
  </>}
  />
 
+ <BulkBar count={bulk.count} onClear={bulk.clear} onDelete={handleBulkDelete} label="계산서" />
+
  {/* 상단 요약 카드 */}
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
  <StatCard label="이번 달 매출" value={`₩${thisMonthTotal.toLocaleString()}`} hint={`${thisMonth} · ${thisMonthList.length}건`} onClick={() => setVendorFilter('all')} />
@@ -185,6 +199,14 @@ export default function InvoicesPage() {
  <table className="w-full text-[13px]">
  <thead>
  <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
+ <th className="pl-4 pr-2 py-2.5 w-10">
+   <Checkbox
+     checked={monthList.length > 0 && monthList.every(i => bulk.has(i.id))}
+     indeterminate={monthList.some(i => bulk.has(i.id))}
+     onChange={() => bulk.toggleAll(monthList.map(i => i.id))}
+     ariaLabel={`${month} 전체 선택`}
+   />
+ </th>
  <th className="px-4 py-2.5 w-28">발행일</th>
  <th className="px-4 py-2.5">거래처</th>
  <th className="px-4 py-2.5 text-right">공급가액</th>
@@ -195,7 +217,10 @@ export default function InvoicesPage() {
  </thead>
  <tbody>
  {monthList.map(i => (
- <tr key={i.id} className="border-t border-zinc-100 hover:bg-zinc-50/50">
+ <tr key={i.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(i.id) ? 'bg-zinc-50' : ''}`}>
+ <td className="pl-4 pr-2 py-2.5">
+   <Checkbox checked={bulk.has(i.id)} onChange={() => bulk.toggle(i.id)} ariaLabel={`${i.issue_date} 선택`} />
+ </td>
  <td className="px-4 py-2.5 font-medium tabular-nums">
  <button onClick={() => { setEditing(i); setDrawerOpen(true) }} className="hover:underline">
  {i.issue_date.slice(5)}

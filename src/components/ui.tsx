@@ -176,3 +176,61 @@ export function Badge({ children, color = 'zinc' }: { children: ReactNode; color
   }
   return <span className={`inline-flex items-center px-2 py-0.5 rounded-md text-[11px] font-medium ${colors[color]}`}>{children}</span>
 }
+
+/* ───── 체크박스 (테이블 다중선택용) ───── */
+interface CheckboxProps {
+  checked: boolean
+  indeterminate?: boolean
+  onChange: (next: boolean) => void
+  ariaLabel?: string
+  className?: string
+}
+export function Checkbox({ checked, indeterminate = false, onChange, ariaLabel, className = '' }: CheckboxProps) {
+  const ref = useRef<HTMLInputElement>(null)
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate && !checked
+  }, [indeterminate, checked])
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={checked}
+      onChange={e => onChange(e.target.checked)}
+      onClick={e => e.stopPropagation()}
+      aria-label={ariaLabel}
+      className={`w-4 h-4 rounded border-zinc-300 text-zinc-900 focus:ring-2 focus:ring-zinc-200 cursor-pointer accent-zinc-900 ${className}`}
+    />
+  )
+}
+
+/* ───── 다중선택 액션바 (상단 sticky) ───── */
+export function BulkBar({ count, onClear, onDelete, label = '항목' }: {
+  count: number
+  onClear: () => void
+  onDelete: () => void
+  label?: string
+}) {
+  if (count === 0) return null
+  return (
+    <div className="sticky top-0 z-10 -mx-3 sm:-mx-4 px-3 sm:px-4 py-2 mb-3 bg-zinc-900 text-white flex items-center gap-2 rounded-lg shadow-sm">
+      <span className="text-[12px] font-medium">
+        {count}건 선택됨
+      </span>
+      <button
+        onClick={onClear}
+        className="text-[11px] text-zinc-300 hover:text-white underline-offset-2 hover:underline"
+      >
+        선택 해제
+      </button>
+      <div className="ml-auto flex items-center gap-2">
+        <button
+          onClick={onDelete}
+          className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium bg-rose-600 hover:bg-rose-700 rounded-md transition-colors"
+          title={`선택한 ${label} 일괄 삭제`}
+        >
+          🗑️ 선택 삭제 ({count})
+        </button>
+      </div>
+    </div>
+  )
+}

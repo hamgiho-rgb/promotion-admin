@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Quotation, QuotationItem, QuotationStatus } from '@/lib/types'
-import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea } from '@/components/ui'
+import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
+import { useBulkSelect } from '@/hooks/useBulkSelect'
 
 const STATUS_LABEL: Record<QuotationStatus, string> = {
  draft: '작성중',
@@ -28,6 +29,7 @@ export default function QuotationsPage() {
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Quotation | null>(null)
  const [statusFilter, setStatusFilter] = useState<string>('all')
+ const bulk = useBulkSelect()
 
  async function load() {
  setLoading(true)
@@ -51,6 +53,16 @@ export default function QuotationsPage() {
  const { error } = await supabase.from('quotations').delete().eq('id', q.id)
  if (error) return alert(error.message)
  load()
+ }
+
+ async function handleBulkDelete() {
+   const ids = Array.from(bulk.selected)
+   if (ids.length === 0) return
+   if (!confirm(`선택한 ${ids.length}건의 견적서를 삭제할까요?\n(라인 항목까지 함께 삭제됩니다. 되돌릴 수 없어요.)`)) return
+   const { error } = await supabase.from('quotations').delete().in('id', ids)
+   if (error) return alert(error.message)
+   bulk.clear()
+   load()
  }
 
  async function changeStatus(q: Quotation, status: QuotationStatus) {
@@ -90,6 +102,8 @@ export default function QuotationsPage() {
  </>}
  />
 
+ <BulkBar count={bulk.count} onClear={bulk.clear} onDelete={handleBulkDelete} label="견적서" />
+
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
  <StatCard label="총 견적 금액" value={`₩${totalAmount.toLocaleString()}`} hint={`${filtered.length}건`} onClick={() => setStatusFilter('all')} />
  <StatCard label="수락된 금액" value={`₩${acceptedAmount.toLocaleString()}`} hint="실제 계약 성사" onClick={() => setStatusFilter('accepted')} />
@@ -125,6 +139,14 @@ export default function QuotationsPage() {
  <table className="w-full text-[13px]">
  <thead>
  <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
+ <th className="pl-4 pr-2 py-2.5 w-10">
+   <Checkbox
+     checked={filtered.length > 0 && filtered.every(q => bulk.has(q.id))}
+     indeterminate={filtered.some(q => bulk.has(q.id))}
+     onChange={() => bulk.toggleAll(filtered.map(q => q.id))}
+     ariaLabel="전체 선택"
+   />
+ </th>
  <th className="px-4 py-2.5">발행일</th>
  <th className="px-4 py-2.5">거래처</th>
  <th className="px-4 py-2.5">상태</th>
@@ -135,7 +157,10 @@ export default function QuotationsPage() {
  </thead>
  <tbody>
  {filtered.map(q => (
- <tr key={q.id} className="border-t border-zinc-100 hover:bg-zinc-50/50">
+ <tr key={q.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(q.id) ? 'bg-zinc-50' : ''}`}>
+ <td className="pl-4 pr-2 py-2.5">
+   <Checkbox checked={bulk.has(q.id)} onChange={() => bulk.toggle(q.id)} ariaLabel={`${q.issue_date} 선택`} />
+ </td>
  <td className="px-4 py-2.5 font-medium tabular-nums">
  <button onClick={() => { setEditing(q); setDrawerOpen(true) }} className="hover:underline">{q.issue_date}</button>
  </td>

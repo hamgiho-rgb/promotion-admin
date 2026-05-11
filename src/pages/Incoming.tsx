@@ -1,8 +1,9 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Incoming, IncomingItem } from '@/lib/types'
-import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea } from '@/components/ui'
+import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
 import { exportMultiSheet, rowsToSheet } from '@/lib/exportXlsx'
+import { useBulkSelect } from '@/hooks/useBulkSelect'
 
 /* ───── 입고내역서별 집계 ───── */
 interface IncomingStats {
@@ -19,6 +20,7 @@ export default function IncomingPage() {
  const [vendorFilter, setVendorFilter] = useState<string>('all')
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Incoming | null>(null)
+ const bulk = useBulkSelect()
 
  async function load() {
  setLoading(true)
@@ -69,6 +71,16 @@ export default function IncomingPage() {
  load()
  }
 
+ async function handleBulkDelete() {
+   const ids = Array.from(bulk.selected)
+   if (ids.length === 0) return
+   if (!confirm(`선택한 ${ids.length}건의 입고내역서를 삭제할까요?\n(하위 입고 라인도 모두 삭제됩니다. 되돌릴 수 없어요.)`)) return
+   const { error } = await supabase.from('incoming').delete().in('id', ids)
+   if (error) return alert('삭제 실패: ' + error.message)
+   bulk.clear()
+   load()
+ }
+
  function vendorName(id: string) {
  return vendors.find(v => v.id === id)?.name || '—'
  }
@@ -116,6 +128,8 @@ export default function IncomingPage() {
  </>}
  />
 
+ <BulkBar count={bulk.count} onClear={bulk.clear} onDelete={handleBulkDelete} label="입고내역서" />
+
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
  <StatCard label="이번 달 입고" value={`${thisMonthQty.toLocaleString()}장`} hint={`${thisMonth} · ${thisMonthList.length}건`} onClick={() => setVendorFilter('all')} />
  <StatCard label="전체 입고 수량" value={`${totalQty.toLocaleString()}장`} hint={`${filtered.length}건의 입고내역서`} onClick={() => setVendorFilter('all')} />
@@ -154,6 +168,14 @@ export default function IncomingPage() {
  <table className="w-full text-[13px]">
  <thead>
  <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
+ <th className="pl-4 pr-2 py-3 w-10">
+   <Checkbox
+     checked={filtered.length > 0 && filtered.every(i => bulk.has(i.id))}
+     indeterminate={filtered.some(i => bulk.has(i.id))}
+     onChange={() => bulk.toggleAll(filtered.map(i => i.id))}
+     ariaLabel="전체 선택"
+   />
+ </th>
  <th className="px-4 py-3">기간</th>
  <th className="px-4 py-3">거래처</th>
  <th className="px-4 py-3 text-right">총 수량</th>
@@ -167,7 +189,10 @@ export default function IncomingPage() {
  {filtered.map(i => {
  const stats = statsMap.get(i.id)
  return (
- <tr key={i.id} className="border-t border-zinc-100 hover:bg-zinc-50/50">
+ <tr key={i.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(i.id) ? 'bg-zinc-50' : ''}`}>
+ <td className="pl-4 pr-2 py-3">
+   <Checkbox checked={bulk.has(i.id)} onChange={() => bulk.toggle(i.id)} ariaLabel={`${i.period || '입고'} 선택`} />
+ </td>
  <td className="px-4 py-3 font-medium text-zinc-900">
  <button onClick={() => { setEditing(i); setDrawerOpen(true) }} className="hover:underline">
  {i.period || '—'}
