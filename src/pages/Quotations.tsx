@@ -443,7 +443,7 @@ function QuotationDrawer({ open, onClose, editing, vendors, onSaved }: {
  <div>
  <Label required>거래처</Label>
  <Select value={form.vendor_id || ''} onChange={e => update('vendor_id', e.target.value)}>
- {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
+ {vendors.map(v => <option key={v.id} value={v.id}>{v.company_name ? `${v.name} (${v.company_name})` : v.name}</option>)}
  </Select>
  </div>
  <div>

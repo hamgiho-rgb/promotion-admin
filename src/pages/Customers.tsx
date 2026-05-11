@@ -222,6 +222,7 @@ function AllTable({ vendors, statsMap, onEdit, onDelete, onShowSales }: {
             <tr key={v.id} className="border-t border-zinc-100 hover:bg-zinc-50/50">
               <td className="px-4 py-3 font-medium text-zinc-900">
                 <button onClick={() => onShowSales(v)} className="hover:underline">{v.name}</button>
+                {v.company_name && <div className="text-[11px] text-zinc-500 font-normal mt-0.5">{v.company_name}</div>}
               </td>
               <td className="px-4 py-3 text-zinc-600">{v.business_number || '—'}</td>
               <td className="px-4 py-3 text-zinc-600">{v.ceo_name || '—'}</td>
@@ -266,7 +267,10 @@ function ContactsTable({ vendors }: { vendors: Vendor[] }) {
       <tbody>
         {vendors.map(v => (
           <tr key={v.id} className="border-t border-zinc-100 hover:bg-zinc-50/50">
-            <td className="px-4 py-3 font-medium text-zinc-900">{v.name}</td>
+            <td className="px-4 py-3 font-medium text-zinc-900">
+              {v.name}
+              {v.company_name && <div className="text-[11px] text-zinc-500 font-normal mt-0.5">{v.company_name}</div>}
+            </td>
             <td className="px-4 py-3 text-zinc-700">{v.ceo_name || '—'}</td>
             <td className="px-4 py-3 text-zinc-700">{v.phone ? <a href={`tel:${v.phone}`} className="hover:underline">{v.phone}</a> : '—'}</td>
             <td className="px-4 py-3 text-zinc-700">{v.email ? <a href={`mailto:${v.email}`} className="hover:underline">{v.email}</a> : '—'}</td>
@@ -301,6 +305,7 @@ function SalesTable({ vendors, statsMap, onShowSales }: {
             <tr key={v.id} className="border-t border-zinc-100 hover:bg-zinc-50/50">
               <td className="px-4 py-3 font-medium text-zinc-900">
                 <button onClick={() => onShowSales(v)} className="hover:underline">{v.name}</button>
+                {v.company_name && <div className="text-[11px] text-zinc-500 font-normal mt-0.5">{v.company_name}</div>}
               </td>
               <td className="px-4 py-3 text-right font-semibold tabular-nums">₩{(stats?.thisMonthRevenue || 0).toLocaleString()}</td>
               <td className="px-4 py-3 text-right tabular-nums text-zinc-600">{stats?.thisMonthCount || 0}건</td>
@@ -501,6 +506,7 @@ function CustomerDrawer({ open, onClose, editing, onSaved }: {
       phone: form.phone?.trim() || null,
       email: form.email?.trim() || null,
       bank_info: form.bank_info?.trim() || null,
+      company_name: form.company_name?.trim() || null,
       memo: finalMemo || null,
       size_system: sizes,
     }
@@ -528,7 +534,14 @@ function CustomerDrawer({ open, onClose, editing, onSaved }: {
     >
       {error && <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[12px]">{error}</div>}
       <div className="space-y-5">
-        <div><Label required>거래처명 (브랜드명)</Label><Input value={form.name || ''} onChange={e => update('name', e.target.value)} /></div>
+        <div className="grid grid-cols-2 gap-3">
+          <div><Label required>브랜드명</Label><Input value={form.name || ''} onChange={e => update('name', e.target.value)} /></div>
+          <div>
+            <Label>회사명 <span className="text-zinc-400 font-normal">(세금계산서용)</span></Label>
+            <Input value={form.company_name || ''} onChange={e => update('company_name', e.target.value)} />
+            <p className="text-[11px] text-zinc-500 mt-1">브랜드를 운영하는 회사명. 같은 회사 산하의 다른 브랜드도 같은 회사명으로 입력. 예: 마크니 ← 쿨파인더, 어센더 ← 도약</p>
+          </div>
+        </div>
         <div className="grid grid-cols-2 gap-3">
           <div><Label>사업자번호</Label><Input value={form.business_number || ''} onChange={e => update('business_number', e.target.value)} /></div>
           <div><Label>대표자</Label><Input value={form.ceo_name || ''} onChange={e => update('ceo_name', e.target.value)} /></div>

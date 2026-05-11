@@ -9,7 +9,7 @@ echo  ========================================
 echo.
 
 git add -A
-git commit -m "feat: AW favicon + filter-wide 'select all' for bulk delete"
+git commit -m "feat: AW favicon + select-all + vendor company_name (brand vs company)"
 if errorlevel 1 (
   echo.
   echo  Nothing new to commit, or commit failed.

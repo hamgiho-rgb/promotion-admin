@@ -7,7 +7,8 @@ export type VendorType = 'supplier' | 'customer'
 
 export interface Vendor {
   id: string
-  name: string
+  name: string                       // 브랜드명 (예: 마크니)
+  company_name: string | null        // 모회사명 (예: 쿨파인더). 없으면 null.
   vendor_type: VendorType
   business_number: string | null
   ceo_name: string | null
