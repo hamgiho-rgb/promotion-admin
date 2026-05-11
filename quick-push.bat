@@ -9,7 +9,7 @@ echo  ========================================
 echo.
 
 git add -A
-git commit -m "feat: AW favicon + select-all + vendor company_name (brand vs company)"
+git commit -m "ui: remove example helper text under company name field"
 if errorlevel 1 (
   echo.
   echo  Nothing new to commit, or commit failed.

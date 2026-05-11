@@ -539,7 +539,6 @@ function CustomerDrawer({ open, onClose, editing, onSaved }: {
           <div>
             <Label>회사명 <span className="text-zinc-400 font-normal">(세금계산서용)</span></Label>
             <Input value={form.company_name || ''} onChange={e => update('company_name', e.target.value)} />
-            <p className="text-[11px] text-zinc-500 mt-1">브랜드를 운영하는 회사명. 같은 회사 산하의 다른 브랜드도 같은 회사명으로 입력. 예: 마크니 ← 쿨파인더, 어센더 ← 도약</p>
           </div>
         </div>
         <div className="grid grid-cols-2 gap-3">
