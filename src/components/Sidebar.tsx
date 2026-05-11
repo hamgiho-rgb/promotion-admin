@@ -1,0 +1,100 @@
+import { NavLink } from 'react-router-dom'
+
+const Icon = ({ d }: { d: string }) => (
+  <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+    <path d={d} />
+  </svg>
+)
+
+const ICONS = {
+  dashboard: 'M3 3h7v9H3zM14 3h7v5h-7zM14 12h7v9h-7zM3 16h7v5H3z',
+  customers: 'M16 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M12.5 7a4 4 0 11-8 0 4 4 0 018 0zM20 8v6M23 11h-6',
+  suppliers: 'M3 21V8l9-5 9 5v13M9 21V12h6v9',
+  products:  'M20 7L12 3 4 7v10l8 4 8-4V7zM12 22V12M4 7l8 5 8-5',
+  cost:      'M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6',
+  fabric:    'M3 3h18v18H3zM3 9h18M9 21V9',
+  quotation: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M9 13h6M9 17h4',
+  incoming:  'M21 16V8a2 2 0 00-1-1.73l-7-4a2 2 0 00-2 0l-7 4A2 2 0 003 8v8a2 2 0 001 1.73l7 4a2 2 0 002 0l7-4A2 2 0 0021 16zM3.27 6.96L12 12.01l8.73-5.05M12 22.08V12',
+  invoices:  'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
+  margin:    'M3 3v18h18M7 14l4-4 4 4 6-6',
+  import:    'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3',
+}
+
+const menu = [
+  { section: '메인', items: [
+    { to: '/', label: '대시보드', icon: ICONS.dashboard },
+  ]},
+  { section: '거래처', items: [
+    { to: '/customers', label: '고객 거래처', icon: ICONS.customers },
+    { to: '/suppliers', label: '공급처',      icon: ICONS.suppliers },
+  ]},
+  { section: '상품 · 원가', items: [
+    { to: '/products', label: '상품 관리',   icon: ICONS.products },
+    { to: '/cost',     label: '원가계산서',  icon: ICONS.cost     },
+    { to: '/fabric',   label: '실 입고 내역', icon: ICONS.fabric  },
+  ]},
+  { section: '영업 · 운영', items: [
+    { to: '/quotations', label: '견적서',         icon: ICONS.quotation },
+    { to: '/incoming',   label: '입고내역서',     icon: ICONS.incoming  },
+    { to: '/invoices',   label: '계산서·영수증',  icon: ICONS.invoices  },
+  ]},
+  { section: '분석', items: [
+    { to: '/margin', label: '마진내역서', icon: ICONS.margin },
+  ]},
+  { section: '도구', items: [
+    { to: '/import', label: '엑셀 가져오기', icon: ICONS.import },
+  ]},
+]
+
+export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
+  return (
+    <aside className="w-[232px] h-full bg-white border-r border-zinc-200 flex flex-col">
+      <div className="px-5 pt-6 pb-5">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-lg bg-zinc-900 flex items-center justify-center">
+            <span className="text-white font-bold text-sm tracking-tight">AW</span>
+          </div>
+          <div>
+            <h1 className="text-[15px] font-semibold text-zinc-900 tracking-tight leading-none">프로모션 어드민</h1>
+            <p className="text-[11px] text-zinc-500 mt-1 leading-none">함기호 · 써치</p>
+          </div>
+        </div>
+      </div>
+
+      <nav className="flex-1 px-3 overflow-y-auto pb-4">
+        {menu.map(group => (
+          <div key={group.section} className="mb-1">
+            <p className="px-3 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{group.section}</p>
+            <div className="space-y-0.5">
+              {group.items.map(item => (
+                <NavLink
+                  key={item.to}
+                  to={item.to}
+                  end={item.to === '/'}
+                  onClick={onItemClick}
+                  className={({ isActive }) =>
+                    `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${
+                      isActive
+                        ? 'bg-zinc-900 text-white'
+                        : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 active:bg-zinc-200'
+                    }`
+                  }
+                >
+                  <Icon d={item.icon} />
+                  <span>{item.label}</span>
+                </NavLink>
+              ))}
+            </div>
+          </div>
+        ))}
+      </nav>
+
+      <div className="px-5 py-4 border-t border-zinc-100">
+        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
+          <span>실시간 동기화 중</span>
+        </div>
+      </div>
+    </aside>
+  )
+}

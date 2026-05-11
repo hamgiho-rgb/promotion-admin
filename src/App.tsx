@@ -1,0 +1,48 @@
+import { Routes, Route, Navigate } from 'react-router-dom'
+import Layout from '@/components/Layout'
+import Dashboard from '@/pages/Dashboard'
+import Customers from '@/pages/Customers'
+import Suppliers from '@/pages/Suppliers'
+import Products from '@/pages/Products'
+import ProductDetail from '@/pages/ProductDetail'
+import CostBreakdown from '@/pages/CostBreakdown'
+import Fabric from '@/pages/Fabric'
+import IncomingPage from '@/pages/Incoming'
+import InvoicesPage from '@/pages/Invoices'
+import InvoicePrint from '@/pages/InvoicePrint'
+import QuotationsPage from '@/pages/Quotations'
+import QuotationPrint from '@/pages/QuotationPrint'
+import MarginReport from '@/pages/MarginReport'
+import DataImport from '@/pages/DataImport'
+
+export default function App() {
+  return (
+    <Routes>
+      {/* 인쇄 화면은 사이드바 없이 단독 */}
+      <Route path="/invoices/:id/print"   element={<InvoicePrint />} />
+      <Route path="/quotations/:id/print" element={<QuotationPrint />} />
+
+      {/* 그 외에는 사이드바 레이아웃 */}
+      <Route path="/*" element={
+        <Layout>
+          <Routes>
+            <Route index element={<Dashboard />} />
+            <Route path="customers"  element={<Customers />} />
+            <Route path="suppliers"  element={<Suppliers />} />
+            <Route path="vendors"    element={<Navigate to="/customers" replace />} />
+            <Route path="products"      element={<Products />} />
+            <Route path="products/:id"  element={<ProductDetail />} />
+            <Route path="cost"       element={<CostBreakdown />} />
+            <Route path="fabric"     element={<Fabric />} />
+            <Route path="quotations" element={<QuotationsPage />} />
+            <Route path="incoming"   element={<IncomingPage />} />
+            <Route path="invoices"   element={<InvoicesPage />} />
+            <Route path="margin"     element={<MarginReport />} />
+            <Route path="import"     element={<DataImport />} />
+            <Route path="*" element={<Navigate to="/" replace />} />
+          </Routes>
+        </Layout>
+      } />
+    </Routes>
+  )
+}
