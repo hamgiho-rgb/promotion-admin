@@ -9,7 +9,7 @@ echo  ========================================
 echo.
 
 git add -A
-git commit -m "feat: bulk-delete on Invoices/Quotations/Incoming + handover live URLs"
+git commit -m "feat: AW favicon + filter-wide 'select all' for bulk delete"
 if errorlevel 1 (
   echo.
   echo  Nothing new to commit, or commit failed.

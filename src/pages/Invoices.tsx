@@ -164,7 +164,16 @@ export default function InvoicesPage() {
  </div>
  ) : (
  <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
- <div className="p-3 border-b border-zinc-100 flex items-center gap-3">
+ <div className="p-3 border-b border-zinc-100 flex items-center gap-3 flex-wrap">
+ <label className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-zinc-50 cursor-pointer">
+   <Checkbox
+     checked={filtered.length > 0 && filtered.every(i => bulk.has(i.id))}
+     indeterminate={filtered.some(i => bulk.has(i.id))}
+     onChange={() => bulk.toggleAll(filtered.map(i => i.id))}
+     ariaLabel="현재 필터 전체 선택"
+   />
+   <span className="text-[12px] text-zinc-600 select-none">전체 선택</span>
+ </label>
  <div className="w-56">
  <Select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}>
  <option value="all">모든 거래처</option>
