@@ -1,5 +1,6 @@
 import { Routes, Route, Navigate } from 'react-router-dom'
 import Layout from '@/components/Layout'
+import PinGate from '@/components/PinGate'
 import Dashboard from '@/pages/Dashboard'
 import Customers from '@/pages/Customers'
 import Suppliers from '@/pages/Suppliers'
@@ -14,9 +15,11 @@ import QuotationsPage from '@/pages/Quotations'
 import QuotationPrint from '@/pages/QuotationPrint'
 import MarginReport from '@/pages/MarginReport'
 import DataImport from '@/pages/DataImport'
+import Settings from '@/pages/Settings'
 
 export default function App() {
   return (
+    <PinGate>
     <Routes>
       {/* 인쇄 화면은 사이드바 없이 단독 */}
       <Route path="/invoices/:id/print"   element={<InvoicePrint />} />
@@ -39,10 +42,12 @@ export default function App() {
             <Route path="invoices"   element={<InvoicesPage />} />
             <Route path="margin"     element={<MarginReport />} />
             <Route path="import"     element={<DataImport />} />
+            <Route path="settings"   element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>
         </Layout>
       } />
     </Routes>
+    </PinGate>
   )
 }

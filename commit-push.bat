@@ -1,6 +1,6 @@
 @echo off
 cd /d "%~dp0"
-title Commit & Push
+title Commit and Push
 
 echo.
 echo  ========================================

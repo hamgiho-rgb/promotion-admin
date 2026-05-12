@@ -1,4 +1,5 @@
 import { NavLink } from 'react-router-dom'
+import { lock, getCurrentUser } from '@/components/PinGate'
 
 const Icon = ({ d }: { d: string }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -18,6 +19,7 @@ const ICONS = {
   invoices:  'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8zM14 2v6h6M16 13H8M16 17H8M10 9H8',
   margin:    'M3 3v18h18M7 14l4-4 4 4 6-6',
   import:    'M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4M7 10l5 5 5-5M12 15V3',
+  settings:  'M12 15a3 3 0 100-6 3 3 0 000 6zM19.4 15a1.65 1.65 0 00.33 1.82l.06.06a2 2 0 01-2.83 2.83l-.06-.06a1.65 1.65 0 00-1.82-.33 1.65 1.65 0 00-1 1.51V21a2 2 0 01-4 0v-.09a1.65 1.65 0 00-1-1.51 1.65 1.65 0 00-1.82.33l-.06.06a2 2 0 01-2.83-2.83l.06-.06a1.65 1.65 0 00.33-1.82 1.65 1.65 0 00-1.51-1H3a2 2 0 010-4h.09a1.65 1.65 0 001.51-1 1.65 1.65 0 00-.33-1.82l-.06-.06a2 2 0 012.83-2.83l.06.06a1.65 1.65 0 001.82.33h0a1.65 1.65 0 001-1.51V3a2 2 0 014 0v.09a1.65 1.65 0 001 1.51h0a1.65 1.65 0 001.82-.33l.06-.06a2 2 0 012.83 2.83l-.06.06a1.65 1.65 0 00-.33 1.82v0a1.65 1.65 0 001.51 1H21a2 2 0 010 4h-.09a1.65 1.65 0 00-1.51 1z',
 }
 
 const menu = [
@@ -43,10 +45,12 @@ const menu = [
   ]},
   { section: '도구', items: [
     { to: '/import', label: '엑셀 가져오기', icon: ICONS.import },
+    { to: '/settings', label: '사용자 · 설정', icon: ICONS.settings },
   ]},
 ]
 
 export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
+  const me = getCurrentUser()
   return (
     <aside className="w-[232px] h-full bg-white border-r border-zinc-200 flex flex-col">
       <div className="px-5 pt-6 pb-5">
@@ -56,7 +60,9 @@ export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
           </div>
           <div>
             <h1 className="text-[15px] font-semibold text-zinc-900 tracking-tight leading-none">프로모션 어드민</h1>
-            <p className="text-[11px] text-zinc-500 mt-1 leading-none">함기호 · 써치</p>
+            <p className="text-[11px] text-zinc-500 mt-1 leading-none">
+              {me ? `${me.name} · ${me.role === 'admin' ? '관리자' : '직원'}` : '함기호 · 써치'}
+            </p>
           </div>
         </div>
       </div>
@@ -89,8 +95,18 @@ export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
         ))}
       </nav>
 
-      <div className="px-5 py-4 border-t border-zinc-100">
-        <div className="flex items-center gap-2 text-[11px] text-zinc-400">
+      <div className="px-3 py-3 border-t border-zinc-100 space-y-2">
+        <button
+          onClick={() => { if (confirm('잠그시겠어요? 다음에 PIN을 다시 입력해야 합니다.')) lock() }}
+          className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg text-[12px] text-zinc-500 hover:bg-zinc-100 hover:text-zinc-800 transition-colors"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="11" width="18" height="11" rx="2" />
+            <path d="M7 11V7a5 5 0 0110 0v4" />
+          </svg>
+          <span>잠금</span>
+        </button>
+        <div className="flex items-center gap-2 px-3 text-[11px] text-zinc-400">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-500"></div>
           <span>실시간 동기화 중</span>
         </div>

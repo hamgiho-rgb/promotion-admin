@@ -34,6 +34,7 @@ if exist ".env" (
   (
     echo VITE_SUPABASE_URL=https://gnjjninntiwbbzmfcnqt.supabase.co
     echo VITE_SUPABASE_ANON_KEY=sb_publishable_1WFts_MStSQGujnaZfswiw_K6Ds1SKI
+    echo VITE_ADMIN_PIN=5555
   ) > .env
   echo  [OK] .env created.
 )
