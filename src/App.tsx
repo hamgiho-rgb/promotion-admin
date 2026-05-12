@@ -16,6 +16,7 @@ import QuotationPrint from '@/pages/QuotationPrint'
 import MarginReport from '@/pages/MarginReport'
 import DataImport from '@/pages/DataImport'
 import Settings from '@/pages/Settings'
+import SupplierPayments from '@/pages/SupplierPayments'
 
 export default function App() {
   return (
@@ -41,6 +42,7 @@ export default function App() {
             <Route path="incoming"   element={<IncomingPage />} />
             <Route path="invoices"   element={<InvoicesPage />} />
             <Route path="margin"     element={<MarginReport />} />
+            <Route path="payments"   element={<SupplierPayments />} />
             <Route path="import"     element={<DataImport />} />
             <Route path="settings"   element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />

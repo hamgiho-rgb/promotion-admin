@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, ProductMargin } from '@/lib/types'
 import { Button, Input, Select, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
+import CustomerPicker from '@/components/CustomerPicker'
 
 export default function Products() {
  const navigate = useNavigate()
@@ -284,9 +285,12 @@ function ProductDrawer({ open, onClose, editing, vendors, onSaved }: {
  <div className="space-y-4">
  <div>
  <Label required>거래처(고객)</Label>
- <Select value={form.vendor_id || ''} onChange={e => update('vendor_id', e.target.value)}>
- {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
- </Select>
+ <CustomerPicker
+   value={form.vendor_id || null}
+   customers={vendors}
+   onChange={(id) => update('vendor_id', id || '')}
+   onCustomersChanged={load}
+ />
  </div>
 
  <div className="grid grid-cols-2 gap-3">

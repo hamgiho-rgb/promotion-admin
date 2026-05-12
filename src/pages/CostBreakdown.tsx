@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/components/ui'
+import SupplierPicker from '@/components/SupplierPicker'
 
 export default function CostBreakdown() {
   const [products, setProducts] = useState<Product[]>([])
@@ -187,14 +188,13 @@ export default function CostBreakdown() {
                               {group.items.map(item => (
                                 <tr key={item.id} className="border-t border-zinc-100">
                                   <td className="px-2 py-1.5">
-                                    <Select
-                                      value={item.supplier_id || ''}
-                                      onChange={e => updateItem(item.id, { supplier_id: e.target.value || null })}
+                                    <SupplierPicker
+                                      value={item.supplier_id}
+                                      suppliers={suppliers}
+                                      onChange={(id) => updateItem(item.id, { supplier_id: id })}
+                                      onSuppliersChanged={loadAll}
                                       className="text-[12px] px-2 py-1.5"
-                                    >
-                                      <option value="">— 미지정 —</option>
-                                      {suppliers.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                                    </Select>
+                                    />
                                   </td>
                                   <td className="px-2 py-1.5">
                                     <InlineInput

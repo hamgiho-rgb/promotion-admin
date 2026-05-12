@@ -41,7 +41,8 @@ const menu = [
     { to: '/invoices',   label: '계산서·영수증',  icon: ICONS.invoices  },
   ]},
   { section: '분석', items: [
-    { to: '/margin', label: '마진내역서', icon: ICONS.margin },
+    { to: '/margin',   label: '마진내역서',   icon: ICONS.margin },
+    { to: '/payments', label: '공급처 정산',  icon: ICONS.cost   },
   ]},
   { section: '도구', items: [
     { to: '/import', label: '엑셀 가져오기', icon: ICONS.import },
