@@ -44,7 +44,7 @@ function setItemsInMemo(memo: string, items: string[]): string {
   return body ? `${body} | 품목: ${items.join(', ')}` : `품목: ${items.join(', ')}`
 }
 
-type Tab = 'all' | 'contacts' | 'materials'
+type Tab = 'all' | 'contacts' | 'materials' | 'catalog'
 
 interface SupplierStats {
   materialCount: number
@@ -146,6 +146,7 @@ export default function Suppliers() {
             <TabBtn active={tab === 'all'} onClick={() => setTab('all')}>전체 정보</TabBtn>
             <TabBtn active={tab === 'contacts'} onClick={() => setTab('contacts')}>연락처만</TabBtn>
             <TabBtn active={tab === 'materials'} onClick={() => setTab('materials')}>취급 재료</TabBtn>
+            <TabBtn active={tab === 'catalog'} onClick={() => setTab('catalog')}>품목 카탈로그</TabBtn>
           </div>
           <div className="w-56 pb-3">
             <Input value={search} onChange={e => setSearch(e.target.value)} />
@@ -162,8 +163,10 @@ export default function Suppliers() {
           <AllTable vendors={filtered} statsMap={statsMap} onEdit={(v) => { setEditing(v); setDrawerOpen(true) }} onDelete={handleDelete} onShowMaterials={setMaterialDrawer} />
         ) : tab === 'contacts' ? (
           <ContactsTable vendors={filtered} />
-        ) : (
+        ) : tab === 'materials' ? (
           <MaterialsTable vendors={filtered} statsMap={statsMap} onShowMaterials={setMaterialDrawer} />
+        ) : (
+          <CatalogView vendors={filtered} onShowMaterials={setMaterialDrawer} />
         )}
       </div>
 
@@ -327,6 +330,131 @@ function MaterialsTable({ vendors, statsMap, onShowMaterials }: {
         })}
       </tbody>
     </table>
+  )
+}
+
+/* ───── 탭 4: 품목 카탈로그 (공급처별 취급 품목 카드) ───── */
+function CatalogView({ vendors, onShowMaterials }: {
+  vendors: Vendor[]
+  onShowMaterials: (v: Vendor) => void
+}) {
+  const [catFilter, setCatFilter] = useState<string>('원단')
+  const [itemSearch, setItemSearch] = useState('')
+
+  // 카테고리별 카운트
+  const catCounts = new Map<string, number>()
+  vendors.forEach(v => {
+    const cat = getCategory(v.memo)?.label || '기타'
+    catCounts.set(cat, (catCounts.get(cat) || 0) + 1)
+  })
+  const availableCats = CATEGORY_OPTIONS.filter(c => catCounts.has(c.label))
+
+  // 필터 적용
+  const filtered = vendors
+    .filter(v => {
+      const cat = getCategory(v.memo)?.label
+      if (catFilter !== '전체' && cat !== catFilter) return false
+      if (itemSearch.trim()) {
+        const items = parseItems(v.memo)
+        const search = itemSearch.trim().toLowerCase()
+        return items.some(it => it.toLowerCase().includes(search)) || v.name.toLowerCase().includes(search)
+      }
+      return true
+    })
+    .map(v => ({ vendor: v, items: parseItems(v.memo) }))
+    .filter(x => x.items.length > 0)  // 품목 없는 곳은 숨김 (검색하면 헷갈리니까)
+    .sort((a, b) => b.items.length - a.items.length)
+
+  // 검색어 하이라이트 도우미
+  const highlight = itemSearch.trim().toLowerCase()
+
+  return (
+    <div className="p-4">
+      {/* 필터 바 */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        <div className="flex flex-wrap gap-1">
+          <button
+            onClick={() => setCatFilter('전체')}
+            className={`px-3 py-1.5 rounded-md text-[12px] font-medium border ${
+              catFilter === '전체' ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-700 border-zinc-200'
+            }`}
+          >
+            전체 ({vendors.filter(v => parseItems(v.memo).length > 0).length})
+          </button>
+          {availableCats.map(c => (
+            <button
+              key={c.label}
+              onClick={() => setCatFilter(c.label)}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-medium border ${
+                catFilter === c.label ? 'bg-zinc-900 text-white border-zinc-900' : 'bg-white text-zinc-700 border-zinc-200'
+              }`}
+            >
+              {c.label} ({catCounts.get(c.label) || 0})
+            </button>
+          ))}
+        </div>
+        <div className="flex-1 min-w-[200px]">
+          <Input
+            placeholder=""
+            value={itemSearch}
+            onChange={e => setItemSearch(e.target.value)}
+          />
+        </div>
+      </div>
+
+      {filtered.length === 0 ? (
+        <Empty icon="🔍" title={itemSearch ? '검색 결과가 없어요' : '품목이 등록된 공급처가 없어요'} />
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-3">
+          {filtered.map(({ vendor, items }) => {
+            const cat = getCategory(vendor.memo)
+            const matchingItems = highlight
+              ? items.filter(it => it.toLowerCase().includes(highlight))
+              : items
+            return (
+              <div key={vendor.id} className="bg-white border border-zinc-200 rounded-2xl overflow-hidden hover:border-zinc-300 transition-colors">
+                <div className="px-4 py-3 border-b border-zinc-100 flex items-center justify-between">
+                  <button onClick={() => onShowMaterials(vendor)} className="text-left flex-1 hover:underline">
+                    <div className="font-semibold text-[14px] text-zinc-900">{vendor.name}</div>
+                    <div className="flex items-center gap-1.5 mt-0.5">
+                      {cat && <Badge color={cat.color}>{cat.label}</Badge>}
+                      <span className="text-[11px] text-zinc-500">{items.length}개 품목</span>
+                      {vendor.phone && (
+                        <a href={`tel:${vendor.phone}`} className="text-[11px] text-blue-600 hover:underline ml-1">{vendor.phone}</a>
+                      )}
+                    </div>
+                  </button>
+                </div>
+                <div className="p-3">
+                  <ul className="flex flex-wrap gap-1.5">
+                    {items.map((it, i) => {
+                      const isMatch = highlight && it.toLowerCase().includes(highlight)
+                      return (
+                        <li
+                          key={i}
+                          className={`inline-flex items-center px-2.5 py-1 rounded-md text-[12px] border ${
+                            isMatch
+                              ? 'bg-amber-50 border-amber-300 text-amber-900 font-semibold'
+                              : 'bg-zinc-50 border-zinc-200 text-zinc-700'
+                          }`}
+                        >
+                          {it}
+                        </li>
+                      )
+                    })}
+                  </ul>
+                  {highlight && matchingItems.length > 0 && (
+                    <p className="text-[11px] text-amber-700 mt-2">
+                      📌 '{itemSearch}' 일치 {matchingItems.length}개
+                    </p>
+                  )}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
   )
 }
 
