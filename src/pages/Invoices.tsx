@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Invoice, InvoiceItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
@@ -17,6 +17,7 @@ import { useBulkSelect } from '@/hooks/useBulkSelect'
 
 export default function InvoicesPage() {
  const navigate = useNavigate()
+ const [searchParams] = useSearchParams()
  const [vendors, setVendors] = useState<Vendor[]>([])
  const [list, setList] = useState<Invoice[]>([])
  const [loading, setLoading] = useState(true)
@@ -24,7 +25,11 @@ export default function InvoicesPage() {
  const [editing, setEditing] = useState<Invoice | null>(null)
  const [vendorFilter, setVendorFilter] = useState<string>('all')
  const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
- const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
+ // URL ?month=YYYY-MM 또는 ?year=YYYY 를 읽어서 초기 필터 설정 (대시보드 카드에서 넘어올 때)
+ const urlMonth = searchParams.get('month')
+ const urlYear = searchParams.get('year')
+ const initialMonth = urlMonth ? urlMonth : urlYear ? `year:${urlYear}` : thisYearMonth
+ const [monthFilter, setMonthFilter] = useState<string>(initialMonth)
  const [search, setSearch] = useState('')
  const bulk = useBulkSelect()
 
@@ -120,7 +125,12 @@ export default function InvoicesPage() {
 
  const filtered = list.filter(i => {
    if (vendorFilter !== 'all' && i.vendor_id !== vendorFilter) return false
-   if (monthFilter !== 'all' && !i.issue_date.startsWith(monthFilter)) return false
+   if (monthFilter !== 'all') {
+     if (monthFilter.startsWith('year:')) {
+       const y = monthFilter.slice(5)
+       if (!i.issue_date.startsWith(y + '-')) return false
+     } else if (!i.issue_date.startsWith(monthFilter)) return false
+   }
    if (search.trim()) {
      const s = search.trim().toLowerCase()
      const vName = vendorName(i.vendor_id).toLowerCase()
@@ -195,6 +205,13 @@ export default function InvoicesPage() {
  <div className="w-40">
  <Select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
  <option value="all">전체 기간</option>
+ {Array.from(new Set([
+   ...allMonths.map(m => m.slice(0, 4)),
+   ...(monthFilter.startsWith('year:') ? [monthFilter.slice(5)] : []),
+ ])).sort((a, b) => b.localeCompare(a)).map(y => (
+   <option key={`y${y}`} value={`year:${y}`}>{y}년 전체</option>
+ ))}
+ {!monthFilter.startsWith('year:') && monthFilter !== 'all' && !allMonths.includes(monthFilter) && <option value={monthFilter}>{monthFilter}</option>}
  {allMonths.map(m => <option key={m} value={m}>{m}</option>)}
  </Select>
  </div>

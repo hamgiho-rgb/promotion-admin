@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/components/ui'
@@ -44,13 +45,20 @@ export default function CostBreakdown() {
     setItems(data ?? [])
   }
 
+  const [searchParams] = useSearchParams()
+  const requestedProductId = searchParams.get('product')
+
   useEffect(() => { loadAll() }, [])
-  // 자동으로 첫 상품 선택
+  // URL ?product=... 또는 첫 상품 자동 선택
   useEffect(() => {
-    if (!selectedId && products.length > 0) {
+    if (products.length === 0) return
+    if (requestedProductId && products.find(p => p.id === requestedProductId)) {
+      setSelectedId(requestedProductId)
+    } else if (!selectedId) {
       setSelectedId(products[0].id)
     }
-  }, [products, selectedId])
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [products, requestedProductId])
   useEffect(() => {
     if (selectedId) loadItems(selectedId)
     else setItems([])

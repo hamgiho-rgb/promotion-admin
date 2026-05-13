@@ -152,7 +152,7 @@ export default function ProductDetail() {
         description={`품번 ${product.code}${product.color ? ` · ${product.color}` : ''} · 거래처: ${customer?.name || '—'}`}
         action={
           <div className="flex gap-2">
-            <Button variant="secondary" onClick={() => navigate('/cost')}>원가 편집</Button>
+            <Button variant="secondary" onClick={() => navigate(`/cost?product=${id}`)}>원가 편집</Button>
             <Button variant="secondary" onClick={() => copyToClipboard(buildReorderSMS())}>📋 리오더 메시지 복사</Button>
             <Button onClick={() => navigate('/products')}>← 목록</Button>
           </div>
@@ -185,7 +185,7 @@ export default function ProductDetail() {
           </div>
 
           {Object.keys(supplierGroups).length === 0 ? (
-            <Empty icon="📋" title="원가가 입력되지 않았어요" description="원가계산서에서 재료를 등록하면 여기에 표시돼요." action={<Button size="sm" onClick={() => navigate('/cost')}>원가 입력하기</Button>} />
+            <Empty icon="📋" title="원가가 입력되지 않았어요" description="원가계산서에서 재료를 등록하면 여기에 표시돼요." action={<Button size="sm" onClick={() => navigate(`/cost?product=${id}`)}>원가 입력하기</Button>} />
           ) : (
             <div className="p-3 space-y-2">
               {Object.values(supplierGroups).map((g, idx) => (

@@ -197,7 +197,7 @@ export default function Products() {
  {cost > 0 ? (
  <span className="text-zinc-700 font-medium">₩{cost.toLocaleString()}</span>
  ) : (
- <button onClick={() => navigate('/cost')} className="text-[11px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">
+ <button onClick={() => navigate(`/cost?product=${p.id}`)} className="text-[11px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">
    원가 입력 →
  </button>
  )}

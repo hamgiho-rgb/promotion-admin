@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Incoming, IncomingItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
@@ -14,13 +15,17 @@ interface IncomingStats {
 }
 
 export default function IncomingPage() {
+ const [searchParams] = useSearchParams()
  const [vendors, setVendors] = useState<Vendor[]>([])
  const [list, setList] = useState<Incoming[]>([])
  const [statsMap, setStatsMap] = useState<Map<string, IncomingStats>>(new Map())
  const [loading, setLoading] = useState(true)
  const [vendorFilter, setVendorFilter] = useState<string>('all')
  const thisYearMonth = `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}`
- const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
+ // URL ?month=YYYY.MM 또는 YYYY-MM 둘 다 허용 (대시보드 카드에서 넘어올 때)
+ const urlMonthRaw = searchParams.get('month')
+ const urlMonth = urlMonthRaw ? urlMonthRaw.replace('-', '.') : null
+ const [monthFilter, setMonthFilter] = useState<string>(urlMonth ?? thisYearMonth)
  const [search, setSearch] = useState('')
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Incoming | null>(null)
@@ -179,6 +184,7 @@ export default function IncomingPage() {
  <div className="w-40">
  <Select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
  <option value="all">전체 기간</option>
+ {monthFilter !== 'all' && !allMonths.includes(monthFilter) && <option value={monthFilter}>{monthFilter}</option>}
  {allMonths.map(m => <option key={m} value={m}>{m}</option>)}
  </Select>
  </div>

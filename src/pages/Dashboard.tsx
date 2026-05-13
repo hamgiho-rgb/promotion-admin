@@ -87,6 +87,8 @@ export default function Dashboard() {
   const thisMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
   const lastMonthDate = new Date(today.getFullYear(), today.getMonth() - 1, 1)
   const lastMonth = `${lastMonthDate.getFullYear()}-${String(lastMonthDate.getMonth() + 1).padStart(2, '0')}`
+  const thisMonthInc = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}`
+  const thisYearStr = String(today.getFullYear())
 
   const thisMonthData = monthlyMap.get(thisMonth) ?? { month: thisMonth, revenue: 0, invoiceCount: 0, incomingCount: 0, incomingQty: 0 }
   const lastMonthData = monthlyMap.get(lastMonth) ?? { month: lastMonth, revenue: 0, invoiceCount: 0, incomingCount: 0, incomingQty: 0 }
@@ -119,35 +121,35 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 핵심 지표 카드 - 클릭 가능 */}
+      {/* 핵심 지표 카드 - 클릭하면 해당 페이지로 이동 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
         <StatCard
           label="이번 달 매출"
           value={`₩${thisMonthData.revenue.toLocaleString()}`}
           hint={`${thisMonth} · 계산서 ${thisMonthData.invoiceCount}건`}
           delta={lastMonthData.revenue > 0 ? { value: monthDelta.toFixed(1) + '%', positive: monthDelta >= 0 } : null}
-          onClick={() => setSummary('this_month_revenue')}
+          onClick={() => navigate(`/invoices?month=${thisMonth}`)}
           accent="blue"
         />
         <StatCard
           label="지난 달 매출"
           value={`₩${lastMonthData.revenue.toLocaleString()}`}
           hint={`${lastMonth} · 계산서 ${lastMonthData.invoiceCount}건`}
-          onClick={() => setSummary('last_month_revenue')}
+          onClick={() => navigate(`/invoices?month=${lastMonth}`)}
           accent="violet"
         />
         <StatCard
           label={`${today.getFullYear()}년 누적`}
           value={`₩${yearRevenue.toLocaleString()}`}
           hint="올해 매출 합계"
-          onClick={() => setSummary('ytd_revenue')}
+          onClick={() => navigate(`/invoices?year=${thisYearStr}`)}
           accent="green"
         />
         <StatCard
           label="이번 달 입고"
           value={`${thisMonthData.incomingQty.toLocaleString()}장`}
           hint={`${thisMonthData.incomingCount}건의 입고내역서`}
-          onClick={() => setSummary('this_month_incoming')}
+          onClick={() => navigate(`/incoming?month=${thisMonthInc}`)}
           accent="amber"
         />
       </div>
