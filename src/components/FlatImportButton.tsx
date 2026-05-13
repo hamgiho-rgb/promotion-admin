@@ -15,7 +15,8 @@ const ALIASES: Record<string, string[]> = {
   color: ['컬러', '색상', '컬러명', 'color', 'colour'],
   selling_price: ['판매가', '납품가', '단가', 'price', 'sellingprice', 'unitprice'],
   // common
-  vendor_name: ['거래처명', '거래처', '회사', '회사명', '브랜드명', '브랜드', 'vendor', 'customer', 'company', 'brand'],
+  vendor_name: ['거래처명', '거래처', '회사', '회사명', 'vendor', 'customer', 'company'],
+  brand: ['브랜드', '브랜드명', 'brand'],
   notes: ['메모', '비고', 'memo', 'notes', 'remark', 'remarks'],
   // customers extra
   company_name: ['회사명', '모회사', 'companyname', 'parent company'],
@@ -109,17 +110,18 @@ const SPECS: Record<FlatEntity, EntitySpec> = {
   },
   products: {
     label: '상품',
-    description: '거래처별 상품. 거래처는 미리 등록되어 있어야 자동 연결됨 (없으면 자동 생성).',
+    description: '거래처별 상품. 거래처(회사)는 미리 등록되어 있어야 자동 연결됨 (없으면 자동 생성). 회사 안의 브랜드도 따로 저장 가능.',
     columns: [
-      { key: '거래처명', label: '거래처명 (브랜드)', required: true, hint: '없으면 자동 생성됨' },
+      { key: '거래처명', label: '거래처(회사)', required: true, hint: '회사명. 없으면 자동 생성됨' },
+      { key: '브랜드', label: '브랜드', hint: '선택. 예: 마요네즈 회사의 단델 브랜드' },
       { key: '품번', label: '품번', required: true },
       { key: '품목명', label: '품목명 (한글)', required: true },
       { key: '영문명', label: '영문 품목명', hint: '선택. 거래처에서 영문으로 보내는 경우' },
       { key: '컬러', label: '컬러' },
-      { key: '판매가', label: '판매가', hint: '숫자만' },
+      { key: '판매가', label: '판매가', hint: '숫자만. 납품가로도 인식' },
       { key: '메모', label: '메모' },
     ],
-    templateRow: ['가이던스','A2SKCSTX01RD','패널팬츠','PANEL PANTS','블랙','37800',''],
+    templateRow: ['마요네즈','단델','DD26SMSH-039-CH','픽셀 글리프 테이프 셔츠','DD pixel glyph tape shirt','차콜','39500',''],
   },
 }
 
@@ -283,6 +285,7 @@ export default function FlatImportButton({ entity, onImported }: {
             code,
             name,
             name_en: clean(field(r, 'name_en')),
+            brand: clean(field(r, 'brand')),
             color: clean(field(r, 'color')),
             selling_price: Number(field(r, 'selling_price') || 0),
             notes: clean(field(r, 'notes')),

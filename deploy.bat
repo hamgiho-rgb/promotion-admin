@@ -69,7 +69,7 @@ echo.
 echo  ========================================
 echo   PUSHED - Netlify auto-builds now
 echo  ========================================
-echo  Live (1-2 min): https://promotion-admin.netlify.app
+echo  Live (1-2 min): https://promotion-admin-ati.pages.dev
 echo  GitHub:         https://github.com/hamgiho-rgb/promotion-admin
 echo  Build progress: https://app.netlify.com/projects/promotion-admin/deploys
 echo.

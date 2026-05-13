@@ -7,20 +7,32 @@ import SupplierPicker from '@/components/SupplierPicker'
 export default function CostBreakdown() {
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Vendor[]>([])
+  const [customers, setCustomers] = useState<Vendor[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [items, setItems] = useState<CostItem[]>([])
   const [loading, setLoading] = useState(true)
   const [productSearch, setProductSearch] = useState('')
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: pData }, { data: vData }] = await Promise.all([
+    const [{ data: pData }, { data: sData }, { data: cData }] = await Promise.all([
       supabase.from('products').select('*').order('name'),
       supabase.from('vendors').select('*').eq('vendor_type', 'supplier').order('name'),
+      supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
     ])
     setProducts(pData ?? [])
-    setSuppliers(vData ?? [])
+    setSuppliers(sData ?? [])
+    setCustomers(cData ?? [])
     setLoading(false)
+  }
+
+  function toggleGroup(key: string) {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      return next
+    })
   }
 
   async function loadItems(productId: string) {
@@ -109,19 +121,79 @@ export default function CostBreakdown() {
               <Input value={productSearch} onChange={e => setProductSearch(e.target.value)} />
             </div>
             <div className="flex-1 overflow-y-auto">
-              {filteredProducts.map(p => (
-                <button
-                  key={p.id}
-                  onClick={() => setSelectedId(p.id)}
-                  className={`w-full text-left px-4 py-2.5 border-b border-zinc-50 transition-colors ${
-                    selectedId === p.id ? 'bg-zinc-900 text-white' : 'hover:bg-zinc-50'
-                  }`}
-                >
-                  <div className="text-[12px] font-mono opacity-70">{p.code}</div>
-                  <div className="text-[13px] font-medium truncate">{p.name}</div>
-                  {p.color && <div className="text-[11px] opacity-60 mt-0.5">{p.color}</div>}
-                </button>
-              ))}
+              {(() => {
+                // 회사(vendor) → 브랜드 → 상품들 그룹화
+                const vendorName = (id: string) => customers.find(c => c.id === id)?.name || '거래처 미지정'
+                type ByBrand = Record<string, Product[]>
+                type ByVendor = Record<string, ByBrand>
+                const grouped: ByVendor = {}
+                for (const p of filteredProducts) {
+                  const v = vendorName(p.vendor_id)
+                  const b = p.brand || '(브랜드 없음)'
+                  if (!grouped[v]) grouped[v] = {}
+                  if (!grouped[v][b]) grouped[v][b] = []
+                  grouped[v][b].push(p)
+                }
+                const vendorKeys = Object.keys(grouped).sort()
+                return vendorKeys.map(vName => {
+                  const brands = grouped[vName]
+                  const brandKeys = Object.keys(brands).sort()
+                  const vendorTotal = brandKeys.reduce((s, b) => s + brands[b].length, 0)
+                  const vendorCollapsed = collapsedGroups.has(`v:${vName}`)
+                  return (
+                    <div key={vName}>
+                      <button
+                        onClick={() => toggleGroup(`v:${vName}`)}
+                        className="w-full text-left px-3 py-2 bg-zinc-100 border-b border-zinc-200 flex items-center justify-between sticky top-0 z-[1] hover:bg-zinc-200"
+                      >
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-zinc-500 text-[10px]">{vendorCollapsed ? '▶' : '▼'}</span>
+                          <span className="font-bold text-[12px] text-zinc-900 truncate">{vName}</span>
+                        </div>
+                        <span className="text-[10px] text-zinc-500 tabular-nums">{vendorTotal}</span>
+                      </button>
+                      {!vendorCollapsed && brandKeys.map(bName => {
+                        const list = brands[bName]
+                        const brandCollapsed = collapsedGroups.has(`b:${vName}:${bName}`)
+                        const hasMultipleBrands = brandKeys.length > 1 || bName !== '(브랜드 없음)'
+                        return (
+                          <div key={bName}>
+                            {hasMultipleBrands && (
+                              <button
+                                onClick={() => toggleGroup(`b:${vName}:${bName}`)}
+                                className="w-full text-left px-4 py-1.5 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between hover:bg-zinc-100"
+                              >
+                                <div className="flex items-center gap-1.5">
+                                  <span className="text-zinc-400 text-[9px]">{brandCollapsed ? '▶' : '▼'}</span>
+                                  <Badge color="blue">{bName}</Badge>
+                                </div>
+                                <span className="text-[10px] text-zinc-400 tabular-nums">{list.length}</span>
+                              </button>
+                            )}
+                            {!brandCollapsed && list.map(p => (
+                              <button
+                                key={p.id}
+                                onClick={() => setSelectedId(p.id)}
+                                className={`w-full text-left px-4 py-2 border-b border-zinc-50 transition-colors ${
+                                  selectedId === p.id ? 'bg-zinc-900 text-white' : 'hover:bg-zinc-50'
+                                }`}
+                              >
+                                <div className="text-[11px] font-mono opacity-70 truncate">{p.code}</div>
+                                <div className="text-[12px] font-medium truncate">{p.name}</div>
+                                {(p.color || p.name_en) && (
+                                  <div className="text-[10px] opacity-60 mt-0.5 truncate">
+                                    {p.color}{p.color && p.name_en ? ' · ' : ''}{p.name_en}
+                                  </div>
+                                )}
+                              </button>
+                            ))}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })
+              })()}
             </div>
           </aside>
 

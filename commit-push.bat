@@ -29,7 +29,7 @@ if errorlevel 1 (
 echo.
 echo  ========================================
 echo   PUSHED - Netlify will auto-deploy in 1-2 minutes
-echo   https://promotion-admin.netlify.app
+echo   https://promotion-admin-ati.pages.dev
 echo  ========================================
 
 :end

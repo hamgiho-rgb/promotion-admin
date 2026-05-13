@@ -166,7 +166,10 @@ export default function Products() {
  </td>
  <td className="px-4 py-2.5 font-medium text-zinc-900">
  <button onClick={() => navigate(`/products/${p.id}`)} className="hover:underline text-left">
-   <div>{p.name}</div>
+   <div className="flex items-center gap-1.5">
+     {p.brand && <Badge color="blue">{p.brand}</Badge>}
+     <span>{p.name}</span>
+   </div>
    {p.name_en && <div className="text-[10px] text-zinc-500 font-normal mt-0.5">{p.name_en}</div>}
  </button>
  </td>
@@ -258,6 +261,7 @@ function ProductDrawer({ open, onClose, editing, vendors, onSaved, onVendorsRelo
  code: form.code.trim(),
  name: form.name.trim(),
  name_en: form.name_en?.trim() || null,
+ brand: form.brand?.trim() || null,
  color: form.color?.trim() || null,
  vendor_id: form.vendor_id,
  selling_price: Number(form.selling_price) || 0,
@@ -324,6 +328,12 @@ function ProductDrawer({ open, onClose, editing, vendors, onSaved, onVendorsRelo
  <Label>영문 품목명 (선택)</Label>
  <Input value={form.name_en || ''} onChange={e => update('name_en', e.target.value)} />
  <p className="text-[11px] text-zinc-500 mt-1">거래처에서 영문으로 보내는 경우 같이 등록. 검색 시 둘 다 매칭됩니다.</p>
+ </div>
+
+ <div>
+ <Label>브랜드 (선택)</Label>
+ <Input value={form.brand || ''} onChange={e => update('brand', e.target.value)} />
+ <p className="text-[11px] text-zinc-500 mt-1">예: 회사 '마요네즈' 안에 브랜드 '단델'. 상품 목록에 파란 뱃지로 표시.</p>
  </div>
 
  <div>
