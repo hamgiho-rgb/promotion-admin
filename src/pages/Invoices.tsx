@@ -46,6 +46,17 @@ export default function InvoicesPage() {
 
  useEffect(() => { load() }, [])
 
+ // URL ?edit=<id> 가 들어오면 해당 계산서 자동 열기 (견적서 → 계산서 발행 직후 사용)
+ useEffect(() => {
+   const editId = searchParams.get('edit')
+   if (!editId || list.length === 0) return
+   const found = list.find(i => i.id === editId)
+   if (found && !drawerOpen) {
+     setEditing(found)
+     setDrawerOpen(true)
+   }
+ }, [searchParams, list])
+
  function vendorName(id: string) {
  return vendors.find(v => v.id === id)?.name || '—'
  }
@@ -279,10 +290,23 @@ export default function InvoicesPage() {
  {i.issue_date.slice(5)}
  </button>
  </td>
- <td className="px-4 py-2.5"><Badge color="green">{vendorName(i.vendor_id)}</Badge></td>
+ <td className="px-4 py-2.5">
+   <div className="flex items-center gap-1.5 flex-wrap">
+     <Badge color="green">{vendorName(i.vendor_id)}</Badge>
+     {i.quotation_id && <Badge color="violet">견적서</Badge>}
+   </div>
+ </td>
  <td className="px-4 py-2.5 text-right tabular-nums">₩{Number(i.subtotal).toLocaleString()}</td>
  <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">₩{Number(i.vat).toLocaleString()}</td>
- <td className="px-4 py-2.5 text-right font-semibold tabular-nums">₩{Number(i.total).toLocaleString()}</td>
+ <td className="px-4 py-2.5 text-right font-semibold tabular-nums">
+   ₩{Number(i.total).toLocaleString()}
+   {Number(i.deposit_amount || 0) > 0 && (
+     <div className="text-[10px] text-amber-600 font-normal mt-0.5">
+       선납 −₩{Number(i.deposit_amount).toLocaleString()}<br/>
+       잔금 ₩{(Number(i.total) - Number(i.deposit_amount || 0)).toLocaleString()}
+     </div>
+   )}
+ </td>
  <td className="px-4 py-2.5 text-right whitespace-nowrap">
  <Button size="sm" variant="ghost" onClick={() => navigate(`/invoices/${i.id}/print`)} title="새 탭에서 인쇄 화면 열기">🖨️ 출력</Button>
  <Button size="sm" variant="ghost" onClick={() => exportOne(i)} title="영수증 양식으로 엑셀 다운로드">📥 엑셀</Button>
@@ -570,6 +594,9 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  supplier_address: form.supplier_address || '',
  bank_info: form.bank_info || '',
  subtotal, vat, total,
+ // 견적서 연결 + 선납액
+ quotation_id: form.quotation_id || null,
+ deposit_amount: Number(form.deposit_amount || 0),
  notes: form.notes?.trim() || null,
  }
 
@@ -783,7 +810,31 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  <span>총 합계</span><span className="tabular-nums">₩{total.toLocaleString()}</span>
  </div>
  </div>
- <p className="text-[11px] text-zinc-400 mt-2">💡 음수 수량 = 반품(빨간색 표시). 변경 사항은 우측 하단 저장 버튼을 눌러야 DB에 반영됩니다.</p>
+
+ {/* 선납액 (계약금) - 견적서에서 발행했을 때 자동 채워짐, 수정 가능 */}
+ <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
+ <div className="flex items-center justify-between mb-2">
+ <p className="text-[11px] font-semibold uppercase tracking-wider text-amber-700">💰 선납 받은 계약금</p>
+ {form.quotation_id && <Badge color="amber">견적서 연결됨</Badge>}
+ </div>
+ <div className="flex items-center gap-2">
+ <Input
+ type="number"
+ value={Number(form.deposit_amount || 0)}
+ onChange={e => update('deposit_amount', Number(e.target.value || 0))}
+ placeholder="0"
+ />
+ <span className="text-[12px] text-zinc-500 whitespace-nowrap">원</span>
+ </div>
+ <div className="mt-2 pt-2 border-t border-amber-200 flex justify-between text-[12px]">
+ <span className="text-zinc-600">청구 잔금 (총 합계 − 선납)</span>
+ <span className={`tabular-nums font-bold ${(total - Number(form.deposit_amount || 0)) < 0 ? 'text-rose-600' : 'text-zinc-900'}`}>
+ ₩{(total - Number(form.deposit_amount || 0)).toLocaleString()}
+ {(total - Number(form.deposit_amount || 0)) < 0 && ' (환불)'}
+ </span>
+ </div>
+ </div>
+ <p className="text-[11px] text-zinc-400 mt-2">💡 음수 수량 = 반품(빨간색 표시). 견적서에서 받은 계약금이 있으면 위 칸에 입력하세요. 매출은 총 합계로만 잡힙니다.</p>
  </>
  )}
  </div>

@@ -25,6 +25,7 @@ export default function QuotationsPage() {
  const navigate = useNavigate()
  const [vendors, setVendors] = useState<Vendor[]>([])
  const [list, setList] = useState<Quotation[]>([])
+ const [issuedMap, setIssuedMap] = useState<Map<string, string>>(new Map()) // quotation_id -> invoice_id (이미 발행된 견적서)
  const [loading, setLoading] = useState(true)
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Quotation | null>(null)
@@ -36,13 +37,70 @@ export default function QuotationsPage() {
 
  async function load() {
  setLoading(true)
- const [{ data: vData }, { data: qData }] = await Promise.all([
+ const [{ data: vData }, { data: qData }, { data: invs }] = await Promise.all([
  supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
  supabase.from('quotations').select('*').order('issue_date', { ascending: false }),
+ supabase.from('invoices').select('id, quotation_id').not('quotation_id', 'is', null),
  ])
  setVendors(vData ?? [])
  setList(qData ?? [])
+ const m = new Map<string, string>()
+ ;(invs ?? []).forEach((iv: any) => { if (iv.quotation_id) m.set(iv.quotation_id, iv.id) })
+ setIssuedMap(m)
  setLoading(false)
+ }
+
+ /* 견적서 → 계산서 발행: 거래처/단가/공급자정보만 복사한 빈 계산서 생성.
+    수량은 실제 입고와 다를 수 있으므로 비워두고, 사용자가 [입고에서 가져오기] 또는 직접 입력. */
+ async function convertToInvoice(q: Quotation) {
+   if (issuedMap.has(q.id)) {
+     if (!confirm('이 견적서로 이미 발행된 계산서가 있어요. 새로 또 발행할까요?')) return
+   }
+   // 견적 라인을 가져와서 단가만 살리고 수량은 빈 계산서 생성
+   const { data: qItems } = await supabase.from('quotation_items').select('*').eq('quotation_id', q.id).order('sort_order')
+
+   const headerPayload = {
+     vendor_id: q.vendor_id,
+     issue_date: new Date().toISOString().slice(0, 10),
+     supplier_business_number: q.supplier_business_number || '',
+     supplier_name: q.supplier_name || '',
+     supplier_ceo: q.supplier_ceo || '',
+     supplier_address: q.supplier_address || '',
+     bank_info: q.bank_info || '',
+     subtotal: 0, vat: 0, total: 0, // 라인 추가 후 다시 계산
+     quotation_id: q.id,
+     deposit_amount: q.deposit_received ? Number(q.deposit_amount || 0) : 0,
+     notes: `견적서 ${q.issue_date}에서 발행. 실제 수량을 입고내역서에서 가져오거나 직접 입력하세요.`,
+   }
+   const { data: created, error } = await supabase.from('invoices').insert(headerPayload).select().single()
+   if (error) { alert('계산서 생성 실패: ' + error.message); return }
+
+   // 견적 품목을 계산서 라인으로 복사 (수량은 그대로 — 사용자가 실수량으로 수정)
+   if (qItems && qItems.length > 0) {
+     const itemPayload = qItems.map((qi: any, idx: number) => ({
+       invoice_id: created.id,
+       product_id: qi.product_id || null,
+       product_name: qi.product_name || null,
+       color: qi.color || null,
+       quantity: Number(qi.quantity || 0),
+       unit_price: Number(qi.unit_price || 0),
+       sort_order: idx,
+     }))
+     await supabase.from('invoice_items').insert(itemPayload)
+     // 합계 재계산해서 invoice 업데이트
+     const subtotal = itemPayload.reduce((s, x) => s + x.quantity * x.unit_price, 0)
+     const vat = Math.round(subtotal * 0.1)
+     await supabase.from('invoices').update({ subtotal, vat, total: subtotal + vat }).eq('id', created.id)
+   }
+
+   // 견적서 상태도 'converted'로
+   await supabase.from('quotations').update({ status: 'converted' }).eq('id', q.id)
+
+   if (confirm('계산서가 발행됐어요! 바로 계산서 편집 화면으로 이동할까요?\n(수량을 실제 출고량으로 수정하세요)')) {
+     navigate(`/invoices?edit=${created.id}`)
+   } else {
+     load()
+   }
  }
 
  useEffect(() => { load() }, [])
@@ -235,6 +293,11 @@ export default function QuotationsPage() {
                    ) : <span className="text-zinc-300">—</span>}
                  </td>
                  <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                   {issuedMap.has(q.id) ? (
+                     <Badge color="violet">📄 계산서 발행됨</Badge>
+                   ) : (
+                     <Button size="sm" variant="ghost" onClick={() => convertToInvoice(q)} title="이 견적서로 계산서 발행 (실수량은 입고에서 가져오거나 수정)" className="text-violet-600 hover:bg-violet-50">📄 계산서 발행</Button>
+                   )}
                    <Button size="sm" variant="ghost" onClick={() => navigate(`/quotations/${q.id}/print`)} title="새 탭에서 인쇄">🖨️ 출력</Button>
                    <Button size="sm" variant="ghost" onClick={() => { setEditing(q); setDrawerOpen(true) }}>수정</Button>
                    <Button size="sm" variant="ghost" onClick={() => handleDelete(q)} className="text-rose-600 hover:bg-rose-50">삭제</Button>

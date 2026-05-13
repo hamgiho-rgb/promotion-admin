@@ -98,6 +98,9 @@ export interface Invoice {
   subtotal: number
   vat: number
   total: number
+  // 견적서 연결 + 선납액 (계약금)
+  quotation_id: string | null
+  deposit_amount: number   // 견적서에서 받은 계약금 (계산서 발행 시 차감 → 청구 잔금 = total - deposit_amount)
   notes: string | null
   created_at: string
   updated_at: string

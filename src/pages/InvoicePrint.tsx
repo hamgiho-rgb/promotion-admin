@@ -103,8 +103,8 @@ export default function InvoicePrint() {
               <span className="text-[14px] font-medium">{invoice.issue_date}</span>
             </div>
             <div className="border-2 border-zinc-800 px-3 py-2 flex items-center justify-between">
-              <span className="text-[11px] text-zinc-500">금일 금액</span>
-              <span className="text-[16px] font-bold tabular-nums">₩{total.toLocaleString()}</span>
+              <span className="text-[11px] text-zinc-500">{Number(invoice.deposit_amount || 0) > 0 ? '청구 잔금' : '금일 금액'}</span>
+              <span className="text-[16px] font-bold tabular-nums">₩{(total - Number(invoice.deposit_amount || 0)).toLocaleString()}</span>
             </div>
           </div>
 
@@ -165,10 +165,22 @@ export default function InvoicePrint() {
                 <span className="text-zinc-500">부가세</span>
                 <span className="tabular-nums">₩{vat.toLocaleString()}</span>
               </div>
-              <div className="grid grid-cols-[1fr_auto] gap-x-4 px-3 py-2 bg-zinc-50 text-[14px] font-bold">
+              <div className="grid grid-cols-[1fr_auto] gap-x-4 px-3 py-2 bg-zinc-50 text-[14px] font-bold border-b border-zinc-300">
                 <span>총 합계</span>
                 <span className="tabular-nums">₩{total.toLocaleString()}</span>
               </div>
+              {Number(invoice.deposit_amount || 0) > 0 && (
+                <>
+                  <div className="grid grid-cols-[1fr_auto] gap-x-4 px-3 py-1.5 border-b border-zinc-300 text-[12px] text-amber-700">
+                    <span>선납 받음 (계약금)</span>
+                    <span className="tabular-nums">− ₩{Number(invoice.deposit_amount).toLocaleString()}</span>
+                  </div>
+                  <div className="grid grid-cols-[1fr_auto] gap-x-4 px-3 py-2 bg-amber-50 text-[14px] font-bold">
+                    <span>청구 잔금</span>
+                    <span className="tabular-nums">₩{(total - Number(invoice.deposit_amount || 0)).toLocaleString()}</span>
+                  </div>
+                </>
+              )}
             </div>
           </div>
 
