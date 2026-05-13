@@ -450,6 +450,18 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  .select('*, product:products(color, selling_price)')
  .in('incoming_id', ids)
 
+ // 거래처의 상품 카탈로그 — fallback 매칭용 (product_id가 비어있어도 코드/이름으로 단가 잡기)
+ const { data: vendorProducts } = await supabase
+ .from('products')
+ .select('id, code, name, color, selling_price')
+ .eq('vendor_id', vendorId)
+ const byCode = new Map<string, any>()
+ const byName = new Map<string, any>()
+ ;(vendorProducts ?? []).forEach((p: any) => {
+   if (p.code) byCode.set(String(p.code).trim().toLowerCase(), p)
+   if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
+ })
+
  const map = new Map<string, Map<string, ImportableItem>>()
  ;(rawItems ?? []).forEach((it: any) => {
  if (!it.delivery_date) return
@@ -458,14 +470,28 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  if (!map.has(dKey)) map.set(dKey, new Map())
  const dMap = map.get(dKey)!
  if (!dMap.has(pKey)) {
- dMap.set(pKey, {
- product_id: it.product_id,
- product_code: it.product_code || '',
- product_name: it.product_name || '',
- color: it.product?.color ?? null,
- quantity: 0,
- unit_price: Number(it.product?.selling_price ?? 0),
- })
+   // 1순위: incoming_items.product_id 로 join된 결과 (it.product)
+   // 2순위: 같은 거래처 내에서 product_code 매칭
+   // 3순위: 같은 거래처 내에서 product_name 매칭
+   let matched = it.product
+   let matchedId = it.product_id
+   if (!matched || !matched.selling_price) {
+     const codeKey = (it.product_code || '').toString().trim().toLowerCase()
+     const nameKey = (it.product_name || '').toString().trim().toLowerCase()
+     const found = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey))
+     if (found) {
+       matched = found
+       matchedId = found.id  // product_id도 채워줌 → 계산서 라인에 정상적으로 연결
+     }
+   }
+   dMap.set(pKey, {
+     product_id: matchedId,
+     product_code: it.product_code || (matched?.code ?? ''),
+     product_name: it.product_name || (matched?.name ?? ''),
+     color: matched?.color ?? null,
+     quantity: 0,
+     unit_price: Number(matched?.selling_price ?? 0),
+   })
  }
  dMap.get(pKey)!.quantity += Number(it.total_quantity || 0)
  })
@@ -712,13 +738,17 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  <div className="space-y-1.5 max-h-60 overflow-y-auto">
  {importGroups.map(g => {
  const imported = importedDates.has(g.date)
+ const missingPrice = g.items.filter(it => !it.unit_price || it.unit_price === 0).length
  return (
- <div key={g.date} className={`flex items-center gap-3 px-3 py-2 bg-white rounded-lg border ${imported ? 'border-emerald-200 bg-emerald-50/40' : 'border-zinc-200 hover:border-zinc-300'}`}>
+ <div key={g.date} className={`flex items-center gap-3 px-3 py-2 bg-white rounded-lg border ${imported ? 'border-emerald-200 bg-emerald-50/40' : missingPrice > 0 ? 'border-amber-300 bg-amber-50/40' : 'border-zinc-200 hover:border-zinc-300'}`}>
  <div className="flex-1 min-w-0">
- <div className="flex items-center gap-2">
+ <div className="flex items-center gap-2 flex-wrap">
  <span className="text-[13px] font-semibold text-zinc-900 tabular-nums">{g.date}</span>
  <span className="text-[11px] text-zinc-500">상품 {g.items.length}개 · 총 <span className="font-semibold text-zinc-700 tabular-nums">{g.totalQty.toLocaleString()}</span>장</span>
  {imported && <Badge color="green">가져옴</Badge>}
+ {missingPrice > 0 && (
+   <span className="text-[10px] font-semibold text-amber-700 bg-amber-100 px-1.5 py-0.5 rounded" title="상품에 판매가가 없거나 매칭 실패">⚠ 단가 미매칭 {missingPrice}건</span>
+ )}
  </div>
  </div>
  <Button size="sm" onClick={() => importDate(g)}>
@@ -767,8 +797,9 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  {lines.map(l => {
  const isReturn = Number(l.quantity) < 0
  const amount = Number(l.quantity || 0) * Number(l.unit_price || 0)
+ const priceMissing = !Number(l.unit_price || 0)
  return (
- <tr key={l.tempId} className={`border-t border-zinc-100 ${isReturn ? 'bg-rose-50/30' : ''}`}>
+ <tr key={l.tempId} className={`border-t border-zinc-100 ${isReturn ? 'bg-rose-50/30' : priceMissing ? 'bg-amber-50/40' : ''}`}>
  <td className="px-2 py-1">
  <Input type="date" value={l.line_date || ''} onChange={e => updateLine(l.tempId, { line_date: e.target.value })} className="text-[11px] px-1.5 py-1" />
  </td>
@@ -788,7 +819,8 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  <Input type="number" value={l.quantity} onChange={e => updateLine(l.tempId, { quantity: Number(e.target.value) })} className="text-[11px] px-1.5 py-1 text-right tabular-nums" />
  </td>
  <td className="px-2 py-1">
- <Input type="number" value={l.unit_price} onChange={e => updateLine(l.tempId, { unit_price: Number(e.target.value) })} className="text-[11px] px-1.5 py-1 text-right tabular-nums" />
+ <Input type="number" value={l.unit_price} onChange={e => updateLine(l.tempId, { unit_price: Number(e.target.value) })} className={`text-[11px] px-1.5 py-1 text-right tabular-nums ${priceMissing ? 'border-amber-400 bg-amber-50 text-amber-900' : ''}`} title={priceMissing ? '⚠ 판매가 미설정 — 상품 페이지에서 판매가를 입력해주세요' : ''} />
+ {priceMissing && <p className="text-[9px] text-amber-700 mt-0.5 text-right">⚠ 단가 0</p>}
  </td>
  <td className={`px-2 py-1 text-right font-medium tabular-nums ${isReturn ? 'text-rose-700' : ''}`}>
  ₩{amount.toLocaleString()}

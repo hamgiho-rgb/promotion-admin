@@ -14,6 +14,7 @@ export default function Products() {
  const [loading, setLoading] = useState(true)
  const [search, setSearch] = useState('')
  const [vendorFilter, setVendorFilter] = useState<string>('all')
+ const [priceFilter, setPriceFilter] = useState<'all' | 'missing'>('all')   // 판매가 미입력 필터
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Product | null>(null)
 
@@ -47,6 +48,7 @@ export default function Products() {
 
  const filtered = products.filter(p => {
  if (vendorFilter !== 'all' && p.vendor_id !== vendorFilter) return false
+ if (priceFilter === 'missing' && Number(p.selling_price || 0) > 0) return false
  if (search) {
  const s = search.toLowerCase()
  const nameKo = (p.name || '').toLowerCase()
@@ -57,6 +59,7 @@ export default function Products() {
  }
  return true
  })
+ const missingPriceCount = products.filter(p => !Number(p.selling_price || 0)).length
 
  // 거래처별 그룹핑
  const grouped = filtered.reduce<Record<string, Product[]>>((acc, p) => {
@@ -117,6 +120,15 @@ export default function Products() {
  <div className="flex-1 min-w-[200px] max-w-md">
  <Input value={search} onChange={e => setSearch(e.target.value)} />
  </div>
+ {missingPriceCount > 0 && (
+   <button
+     onClick={() => setPriceFilter(priceFilter === 'missing' ? 'all' : 'missing')}
+     className={`text-[11px] px-2.5 py-1.5 rounded-md border transition-colors ${priceFilter === 'missing' ? 'bg-amber-500 border-amber-500 text-white' : 'bg-amber-50 border-amber-300 text-amber-700 hover:bg-amber-100'}`}
+     title="판매가 0원 또는 미입력 상품만 보기 (계산서에 단가 자동 매칭이 안 됩니다)"
+   >
+     ⚠ 판매가 미입력 {missingPriceCount}개
+   </button>
+ )}
  <span className="text-[12px] text-zinc-500 ml-auto">{filtered.length}개 상품</span>
  </div>
 
@@ -202,7 +214,15 @@ export default function Products() {
  </button>
  )}
  </td>
- <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-zinc-900">₩{Number(p.selling_price).toLocaleString()}</td>
+ <td className="px-4 py-2.5 text-right tabular-nums">
+   {Number(p.selling_price || 0) > 0 ? (
+     <span className="font-semibold text-zinc-900">₩{Number(p.selling_price).toLocaleString()}</span>
+   ) : (
+     <button onClick={() => { setEditing(p); setDrawerOpen(true) }} className="text-[11px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100" title="판매가가 없어 계산서 단가 자동 매칭이 안 됩니다">
+       ⚠ 판매가 입력 →
+     </button>
+   )}
+ </td>
  <td className="px-4 py-2.5 text-right">
  {cost > 0 ? (
  <div className={`text-[12px] tabular-nums ${margin > 0 ? 'text-emerald-700' : margin < 0 ? 'text-rose-700' : 'text-zinc-500'}`}>
