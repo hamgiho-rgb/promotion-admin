@@ -25,6 +25,7 @@ export default function InvoicesPage() {
  const [vendorFilter, setVendorFilter] = useState<string>('all')
  const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
  const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
+ const [search, setSearch] = useState('')
  const bulk = useBulkSelect()
 
  async function load() {
@@ -120,6 +121,12 @@ export default function InvoicesPage() {
  const filtered = list.filter(i => {
    if (vendorFilter !== 'all' && i.vendor_id !== vendorFilter) return false
    if (monthFilter !== 'all' && !i.issue_date.startsWith(monthFilter)) return false
+   if (search.trim()) {
+     const s = search.trim().toLowerCase()
+     const vName = vendorName(i.vendor_id).toLowerCase()
+     const notes = (i.notes || '').toLowerCase()
+     if (!vName.includes(s) && !notes.includes(s) && !i.issue_date.includes(s)) return false
+   }
    return true
  })
 
@@ -196,6 +203,9 @@ export default function InvoicesPage() {
  <option value="all">모든 거래처</option>
  {vendors.map(v => <option key={v.id} value={v.id}>{v.company_name ? `${v.name} (${v.company_name})` : v.name}</option>)}
  </Select>
+ </div>
+ <div className="flex-1 min-w-[180px]">
+ <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="" />
  </div>
  <span className="text-[12px] text-zinc-500 ml-auto">
  {filtered.length}건 · 합계 <span className="font-semibold text-zinc-700 tabular-nums">₩{allTotal.toLocaleString()}</span>

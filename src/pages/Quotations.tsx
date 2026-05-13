@@ -31,6 +31,7 @@ export default function QuotationsPage() {
  const [statusFilter, setStatusFilter] = useState<string>('all')
  const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
  const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
+ const [search, setSearch] = useState('')
  const bulk = useBulkSelect()
 
  async function load() {
@@ -76,6 +77,12 @@ export default function QuotationsPage() {
  const filtered = list.filter(q => {
    if (statusFilter !== 'all' && q.status !== statusFilter) return false
    if (monthFilter !== 'all' && !q.issue_date?.startsWith(monthFilter)) return false
+   if (search.trim()) {
+     const s = search.trim().toLowerCase()
+     const vName = vendorName(q.vendor_id).toLowerCase()
+     const notes = (q.notes || '').toLowerCase()
+     if (!vName.includes(s) && !notes.includes(s) && !q.issue_date?.includes(s)) return false
+   }
    return true
  })
 
@@ -149,6 +156,9 @@ export default function QuotationsPage() {
  <option value="rejected">거절</option>
  <option value="converted">계산서 발행</option>
  </Select>
+ </div>
+ <div className="flex-1 min-w-[180px]">
+ <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="" />
  </div>
  <span className="text-[12px] text-zinc-500 ml-auto">{filtered.length}건</span>
  </div>
