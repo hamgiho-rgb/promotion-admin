@@ -45,6 +45,12 @@ export default function CostBreakdown() {
   }
 
   useEffect(() => { loadAll() }, [])
+  // 자동으로 첫 상품 선택
+  useEffect(() => {
+    if (!selectedId && products.length > 0) {
+      setSelectedId(products[0].id)
+    }
+  }, [products, selectedId])
   useEffect(() => {
     if (selectedId) loadItems(selectedId)
     else setItems([])
@@ -122,66 +128,73 @@ export default function CostBreakdown() {
             </div>
             <div className="flex-1 overflow-y-auto">
               {(() => {
-                // 회사(vendor) → 브랜드 → 상품들 그룹화
                 const vendorName = (id: string) => customers.find(c => c.id === id)?.name || '거래처 미지정'
                 type ByBrand = Record<string, Product[]>
                 type ByVendor = Record<string, ByBrand>
                 const grouped: ByVendor = {}
                 for (const p of filteredProducts) {
                   const v = vendorName(p.vendor_id)
-                  const b = p.brand || '(브랜드 없음)'
+                  const b = p.brand || ''
                   if (!grouped[v]) grouped[v] = {}
                   if (!grouped[v][b]) grouped[v][b] = []
                   grouped[v][b].push(p)
                 }
                 const vendorKeys = Object.keys(grouped).sort()
+                if (vendorKeys.length === 0) {
+                  return <div className="p-6 text-center text-[12px] text-zinc-400">검색 결과 없음</div>
+                }
                 return vendorKeys.map(vName => {
                   const brands = grouped[vName]
                   const brandKeys = Object.keys(brands).sort()
                   const vendorTotal = brandKeys.reduce((s, b) => s + brands[b].length, 0)
-                  const vendorCollapsed = collapsedGroups.has(`v:${vName}`)
+                  const onlyBrand = brandKeys.length === 1 ? brandKeys[0] : null
                   return (
                     <div key={vName}>
-                      <button
-                        onClick={() => toggleGroup(`v:${vName}`)}
-                        className="w-full text-left px-3 py-2 bg-zinc-100 border-b border-zinc-200 flex items-center justify-between sticky top-0 z-[1] hover:bg-zinc-200"
-                      >
-                        <div className="flex items-center gap-1.5">
-                          <span className="text-zinc-500 text-[10px]">{vendorCollapsed ? '▶' : '▼'}</span>
-                          <span className="font-bold text-[12px] text-zinc-900 truncate">{vName}</span>
+                      {/* 회사 헤더 */}
+                      <div className="sticky top-0 z-[1] px-3 py-2.5 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center justify-between border-b border-zinc-700">
+                        <div className="flex items-center gap-2 min-w-0">
+                          <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold flex-shrink-0">
+                            {vName.slice(0, 1)}
+                          </div>
+                          <span className="font-semibold text-[13px] truncate">{vName}</span>
+                          {onlyBrand && (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white/90 font-medium flex-shrink-0">
+                              {onlyBrand}
+                            </span>
+                          )}
                         </div>
-                        <span className="text-[10px] text-zinc-500 tabular-nums">{vendorTotal}</span>
-                      </button>
-                      {!vendorCollapsed && brandKeys.map(bName => {
+                        <span className="text-[10px] tabular-nums text-white/60 flex-shrink-0">{vendorTotal}</span>
+                      </div>
+                      {/* 브랜드별 상품 */}
+                      {brandKeys.map(bName => {
                         const list = brands[bName]
-                        const brandCollapsed = collapsedGroups.has(`b:${vName}:${bName}`)
-                        const hasMultipleBrands = brandKeys.length > 1 || bName !== '(브랜드 없음)'
+                        const showBrandSep = brandKeys.length > 1
                         return (
                           <div key={bName}>
-                            {hasMultipleBrands && (
-                              <button
-                                onClick={() => toggleGroup(`b:${vName}:${bName}`)}
-                                className="w-full text-left px-4 py-1.5 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between hover:bg-zinc-100"
-                              >
-                                <div className="flex items-center gap-1.5">
-                                  <span className="text-zinc-400 text-[9px]">{brandCollapsed ? '▶' : '▼'}</span>
-                                  <Badge color="blue">{bName}</Badge>
-                                </div>
-                                <span className="text-[10px] text-zinc-400 tabular-nums">{list.length}</span>
-                              </button>
+                            {showBrandSep && (
+                              <div className="px-3 py-1.5 bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5">
+                                <span className="inline-block w-1 h-3 rounded-full bg-blue-400" />
+                                <span className="text-[11px] font-semibold text-zinc-700">{bName || '(브랜드 없음)'}</span>
+                                <span className="text-[10px] text-zinc-400 ml-auto tabular-nums">{list.length}</span>
+                              </div>
                             )}
-                            {!brandCollapsed && list.map(p => (
+                            {list.map(p => (
                               <button
                                 key={p.id}
                                 onClick={() => setSelectedId(p.id)}
-                                className={`w-full text-left px-4 py-2 border-b border-zinc-50 transition-colors ${
-                                  selectedId === p.id ? 'bg-zinc-900 text-white' : 'hover:bg-zinc-50'
+                                className={`group w-full text-left px-3 py-2.5 border-b border-zinc-50 transition-colors relative ${
+                                  selectedId === p.id
+                                    ? 'bg-zinc-900 text-white'
+                                    : 'hover:bg-blue-50/60'
                                 }`}
                               >
-                                <div className="text-[11px] font-mono opacity-70 truncate">{p.code}</div>
-                                <div className="text-[12px] font-medium truncate">{p.name}</div>
+                                {selectedId === p.id && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400" />}
+                                <div className={`text-[10px] font-mono truncate ${selectedId === p.id ? 'text-blue-300' : 'text-zinc-400'}`}>
+                                  {p.code}
+                                </div>
+                                <div className="text-[12.5px] font-medium truncate leading-tight mt-0.5">{p.name}</div>
                                 {(p.color || p.name_en) && (
-                                  <div className="text-[10px] opacity-60 mt-0.5 truncate">
+                                  <div className={`text-[10px] mt-0.5 truncate ${selectedId === p.id ? 'text-zinc-400' : 'text-zinc-500'}`}>
                                     {p.color}{p.color && p.name_en ? ' · ' : ''}{p.name_en}
                                   </div>
                                 )}

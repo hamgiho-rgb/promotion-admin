@@ -91,10 +91,10 @@ export default function Products() {
 
  {/* 상단 요약 카드 */}
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
- <StatCard label="총 상품 수" value={`${totalProducts}개`} hint={`${groupedVendorIds.length}개 거래처`} />
- <StatCard label="평균 판매가" value={`₩${avgPrice.toLocaleString()}`} hint="등록 상품 평균" />
- <StatCard label="원가 입력됨" value={`${withCost}개`} hint={totalProducts ? `${Math.round(withCost/totalProducts*100)}%` : '0%'} />
- <StatCard label="평균 마진" value={`₩${avgMarginValue.toLocaleString()}`} hint="원가 입력된 상품 기준" />
+ <StatCard label="총 상품 수" value={`${totalProducts}개`} hint={`${groupedVendorIds.length}개 거래처`} accent="blue" />
+ <StatCard label="평균 판매가" value={`₩${avgPrice.toLocaleString()}`} hint="등록 상품 평균" accent="violet" />
+ <StatCard label="원가 입력됨" value={`${withCost} / ${totalProducts}`} hint={totalProducts ? `${Math.round(withCost/totalProducts*100)}%  입력 완료` : '0%'} accent={withCost === totalProducts && totalProducts > 0 ? 'green' : 'amber'} />
+ <StatCard label="평균 마진" value={`₩${avgMarginValue.toLocaleString()}`} hint="원가 입력된 상품 기준" accent="green" />
  </div>
 
  {vendors.length === 0 ? (
@@ -130,16 +130,35 @@ export default function Products() {
  )
  ) : (
  <div>
- {groupedVendorIds.map(vId => (
+ {groupedVendorIds.map(vId => {
+ const vendor = vendors.find(v => v.id === vId)
+ const brands = Array.from(new Set(grouped[vId].map(p => p.brand).filter(Boolean))) as string[]
+ const totalPrice = grouped[vId].reduce((s, p) => s + Number(p.selling_price), 0)
+ const withCostCount = grouped[vId].filter(p => (margins.get(p.id)?.production_cost || 0) > 0).length
+ return (
  <div key={vId}>
- <div className="px-4 py-2.5 bg-zinc-50 border-y border-zinc-100 flex items-center justify-between">
- <div className="flex items-center gap-2">
- <Badge color="green">{vendorName(vId)}</Badge>
- <span className="text-[11px] text-zinc-500">{grouped[vId].length}개 상품</span>
+ <div className="px-4 py-3 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center justify-between">
+ <div className="flex items-center gap-3 min-w-0">
+ <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center text-[13px] font-bold flex-shrink-0">
+ {vendorName(vId).slice(0, 1)}
  </div>
- <span className="text-[11px] text-zinc-500">
- 매출가 합계 ₩{grouped[vId].reduce((s, p) => s + Number(p.selling_price), 0).toLocaleString()}
- </span>
+ <div className="min-w-0">
+ <div className="flex items-center gap-2 flex-wrap">
+ <span className="font-semibold text-[14px] truncate">{vendorName(vId)}</span>
+ {vendor?.company_name && <span className="text-[10px] text-white/60">({vendor.company_name})</span>}
+ {brands.map(b => (
+ <span key={b} className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white/90 font-medium">{b}</span>
+ ))}
+ </div>
+ <div className="text-[11px] text-white/60 mt-0.5">
+ {grouped[vId].length}개 상품 · 원가 {withCostCount}/{grouped[vId].length}
+ </div>
+ </div>
+ </div>
+ <div className="text-right flex-shrink-0">
+ <div className="text-[10px] text-white/60 uppercase tracking-wider">매출가 합계</div>
+ <div className="text-[15px] font-bold tabular-nums">₩{totalPrice.toLocaleString()}</div>
+ </div>
  </div>
  <table className="w-full text-[13px]">
  <thead>
@@ -176,20 +195,22 @@ export default function Products() {
  <td className="px-4 py-2.5 text-zinc-600">{p.color || '—'}</td>
  <td className="px-4 py-2.5 text-right tabular-nums">
  {cost > 0 ? (
- <span className="text-zinc-600">₩{cost.toLocaleString()}</span>
+ <span className="text-zinc-700 font-medium">₩{cost.toLocaleString()}</span>
  ) : (
- <span className="text-zinc-300">미입력</span>
+ <button onClick={() => navigate('/cost')} className="text-[11px] px-2 py-0.5 rounded bg-amber-50 text-amber-700 border border-amber-200 hover:bg-amber-100">
+   원가 입력 →
+ </button>
  )}
  </td>
- <td className="px-4 py-2.5 text-right font-medium tabular-nums">₩{Number(p.selling_price).toLocaleString()}</td>
+ <td className="px-4 py-2.5 text-right font-semibold tabular-nums text-zinc-900">₩{Number(p.selling_price).toLocaleString()}</td>
  <td className="px-4 py-2.5 text-right">
  {cost > 0 ? (
- <span className={`text-[12px] font-semibold tabular-nums ${margin > 0 ? 'text-emerald-700' : margin < 0 ? 'text-rose-700' : 'text-zinc-500'}`}>
- ₩{margin.toLocaleString()}
- <span className="ml-1 text-[10px] text-zinc-500">({rate.toFixed(1)}%)</span>
- </span>
+ <div className={`text-[12px] tabular-nums ${margin > 0 ? 'text-emerald-700' : margin < 0 ? 'text-rose-700' : 'text-zinc-500'}`}>
+ <div className="font-bold">₩{margin.toLocaleString()}</div>
+ <div className="text-[10px] opacity-70">{rate.toFixed(1)}%</div>
+ </div>
  ) : (
- <span className="text-zinc-300 text-[12px]">—</span>
+ <span className="text-zinc-300 text-[11px]">—</span>
  )}
  </td>
  <td className="px-4 py-2.5 text-right">
@@ -202,7 +223,8 @@ export default function Products() {
  </tbody>
  </table>
  </div>
- ))}
+ )
+ })}
  </div>
  )}
  </div>
@@ -220,12 +242,19 @@ export default function Products() {
  )
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function StatCard({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: 'blue'|'green'|'amber'|'violet' }) {
+ const colors = {
+   blue: 'from-blue-50 to-white border-blue-100',
+   green: 'from-emerald-50 to-white border-emerald-100',
+   amber: 'from-amber-50 to-white border-amber-100',
+   violet: 'from-violet-50 to-white border-violet-100',
+ }
+ const bg = accent ? `bg-gradient-to-br ${colors[accent]}` : 'bg-white border-zinc-200'
  return (
- <div className="bg-white border border-zinc-200 rounded-2xl p-4">
+ <div className={`border rounded-2xl p-4 ${bg}`}>
  <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
- <p className="text-[20px] font-bold text-zinc-900 mt-1 tabular-nums">{value}</p>
- {hint && <p className="text-[11px] text-zinc-400 mt-0.5">{hint}</p>}
+ <p className="text-[22px] font-bold text-zinc-900 mt-1 tabular-nums">{value}</p>
+ {hint && <p className="text-[11px] text-zinc-500 mt-0.5">{hint}</p>}
  </div>
  )
 }
