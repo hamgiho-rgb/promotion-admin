@@ -120,6 +120,10 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
     const name = String(row[colName] ?? '').trim()
     if (!code && !name) continue
     if (code === '품번' || name === '품목') continue
+    // 합계/소계 행 스킵 — 이게 입고로 잡히면 수량이 더블이 됨
+    const summary = /^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i
+    if (summary.test(code) || summary.test(name)) continue
+    if (!code && summary.test(name)) continue
 
     const sizes: Record<string, number> = {}
     let total = 0

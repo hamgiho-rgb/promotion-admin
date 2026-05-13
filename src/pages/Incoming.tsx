@@ -154,8 +154,18 @@ export default function IncomingPage() {
  <BulkBar count={bulk.count} onClear={bulk.clear} onDelete={handleBulkDelete} label="입고내역서" />
 
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
- <StatCard label="이번 달 입고" value={`${thisMonthQty.toLocaleString()}장`} hint={`${thisMonth} · ${thisMonthList.length}건`} onClick={() => setVendorFilter('all')} />
- <StatCard label="전체 입고 수량" value={`${totalQty.toLocaleString()}장`} hint={`${filtered.length}건의 입고내역서`} onClick={() => setVendorFilter('all')} />
+ <StatCard
+   label="이번 달 입고"
+   value={`${thisMonthQty.toLocaleString()}장`}
+   hint={`${thisMonth} · ${thisMonthList.length}건`}
+   onClick={() => { setMonthFilter(thisMonth); setVendorFilter('all'); setSearch('') }}
+ />
+ <StatCard
+   label="전체 입고 수량"
+   value={`${totalQty.toLocaleString()}장`}
+   hint={`${filtered.length}건의 입고내역서`}
+   onClick={() => { setMonthFilter('all'); setVendorFilter('all'); setSearch('') }}
+ />
  <StatCard label="총 박스 수" value={`${totalCartons.toLocaleString()}개`} hint="C/T 합계" />
  <StatCard
  label="등록 거래처"

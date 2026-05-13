@@ -187,9 +187,24 @@ export default function InvoicesPage() {
 
  {/* 상단 요약 카드 */}
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
- <StatCard label="이번 달 매출" value={`₩${thisMonthTotal.toLocaleString()}`} hint={`${thisMonth} · ${thisMonthList.length}건`} onClick={() => setVendorFilter('all')} />
- <StatCard label="지난 달 매출" value={`₩${lastMonthTotal.toLocaleString()}`} hint={`${lastMonth} · ${lastMonthList.length}건`} onClick={() => setVendorFilter('all')} />
- <StatCard label="전체 매출" value={`₩${allTotal.toLocaleString()}`} hint={`${filtered.length}건 누적`} onClick={() => setVendorFilter('all')} />
+ <StatCard
+   label="이번 달 매출"
+   value={`₩${thisMonthTotal.toLocaleString()}`}
+   hint={`${thisMonth} · ${thisMonthList.length}건`}
+   onClick={() => { setMonthFilter(thisMonth); setVendorFilter('all'); setSearch('') }}
+ />
+ <StatCard
+   label="지난 달 매출"
+   value={`₩${lastMonthTotal.toLocaleString()}`}
+   hint={`${lastMonth} · ${lastMonthList.length}건`}
+   onClick={() => { setMonthFilter(lastMonth); setVendorFilter('all'); setSearch('') }}
+ />
+ <StatCard
+   label="전체 매출"
+   value={`₩${allTotal.toLocaleString()}`}
+   hint={`${filtered.length}건 누적`}
+   onClick={() => { setMonthFilter('all'); setVendorFilter('all'); setSearch('') }}
+ />
  <StatCard
  label="평균 금액"
  value={filtered.length ? `₩${Math.round(allTotal / filtered.length).toLocaleString()}` : '₩0'}

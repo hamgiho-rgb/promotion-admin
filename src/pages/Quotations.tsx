@@ -177,10 +177,32 @@ export default function QuotationsPage() {
  <BulkBar count={bulk.count} onClear={bulk.clear} onDelete={handleBulkDelete} label="견적서" />
 
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
- <StatCard label="총 견적 금액" value={`₩${totalAmount.toLocaleString()}`} hint={`${filtered.length}건`} onClick={() => setStatusFilter('all')} />
- <StatCard label="수락된 금액" value={`₩${acceptedAmount.toLocaleString()}`} hint="실제 계약 성사" onClick={() => setStatusFilter('accepted')} />
- <StatCard label="계약금 받을 것" value={`₩${depositPending.toLocaleString()}`} hint="수락됐지만 미수령" highlight="amber" onClick={() => setStatusFilter('accepted')} />
- <StatCard label="계약금 받음" value={`₩${depositReceived.toLocaleString()}`} hint="입금 확인됨" highlight="green" onClick={() => setStatusFilter('accepted')} />
+ <StatCard
+   label="총 견적 금액"
+   value={`₩${totalAmount.toLocaleString()}`}
+   hint={`${filtered.length}건`}
+   onClick={() => { setStatusFilter('all'); setMonthFilter('all'); setSearch('') }}
+ />
+ <StatCard
+   label="수락된 금액"
+   value={`₩${acceptedAmount.toLocaleString()}`}
+   hint="실제 계약 성사"
+   onClick={() => { setStatusFilter('accepted'); setMonthFilter('all'); setSearch('') }}
+ />
+ <StatCard
+   label="계약금 받을 것"
+   value={`₩${depositPending.toLocaleString()}`}
+   hint="수락됐지만 미수령"
+   highlight="amber"
+   onClick={() => { setStatusFilter('accepted'); setMonthFilter('all'); setSearch('') }}
+ />
+ <StatCard
+   label="계약금 받음"
+   value={`₩${depositReceived.toLocaleString()}`}
+   hint="입금 확인됨"
+   highlight="green"
+   onClick={() => { setStatusFilter('accepted'); setMonthFilter('all'); setSearch('') }}
+ />
  </div>
 
  {vendors.length === 0 ? (
