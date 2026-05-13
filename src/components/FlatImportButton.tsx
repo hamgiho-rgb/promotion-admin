@@ -1,7 +1,57 @@
-import { useRef, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
-import { Button, Drawer, Badge, Empty } from '@/components/ui'
+import { Button, Drawer, Badge, Empty, Select, Label } from '@/components/ui'
+import type { Vendor } from '@/lib/types'
+
+/* ─────────────────────────────────────────────
+ * 컬럼명 자동 매칭 — 헤더 이름이 달라도 인식
+ * ───────────────────────────────────────────── */
+const ALIASES: Record<string, string[]> = {
+  // products
+  code: ['품번', '상품코드', '제품코드', 'code', 'sku', 'productcode', 'item code', 'style code', 'style number', 'number'],
+  name_ko: ['품목명', '품명', '상품명', '제품명', '상품명(국문)', '상품명국문', '국문명', 'name', 'name_ko', 'name(ko)', 'item name', 'item name (kr)'],
+  name_en: ['영문명', '영문 품목명', '상품명(영문)', '상품명영문', 'english name', 'item name (en)', 'name_en', 'name(en)', 'style name'],
+  color: ['컬러', '색상', '컬러명', 'color', 'colour'],
+  selling_price: ['판매가', '납품가', '단가', 'price', 'sellingprice', 'unitprice'],
+  // common
+  vendor_name: ['거래처명', '브랜드명', '브랜드', '거래처', 'vendor', 'brand', 'customer', 'company'],
+  notes: ['메모', '비고', 'memo', 'notes', 'remark', 'remarks'],
+  // customers extra
+  company_name: ['회사명', '모회사', 'companyname', 'parent company'],
+  business_number: ['사업자번호', '사업자 번호', '사업자등록번호', 'business number'],
+  ceo_name: ['대표자', '대표', '대표이사', 'ceo'],
+  address: ['주소', '소재지', 'address'],
+  phone: ['전화번호', '전화', '연락처', 'phone', 'tel'],
+  email: ['이메일', '메일', 'email'],
+  bank_info: ['계좌정보', '계좌', 'bank', 'account'],
+  size_system: ['사이즈체계', '사이즈 체계', '사이즈', 'sizes', 'size system'],
+  // suppliers extra
+  category: ['분류', '카테고리', 'category', 'type'],
+  items: ['취급 품목', '품목', 'items', 'products list'],
+}
+
+function normalizeHeader(h: string): string {
+  return h.toLowerCase().replace(/[\s_\-()/]/g, '').trim()
+}
+
+function buildHeaderMap(headers: string[]): Record<string, number> {
+  const normalized = headers.map(h => normalizeHeader(h))
+  const map: Record<string, number> = {}
+  for (const [key, aliases] of Object.entries(ALIASES)) {
+    for (const a of aliases) {
+      const idx = normalized.indexOf(normalizeHeader(a))
+      if (idx >= 0) { map[key] = idx; break }
+    }
+  }
+  return map
+}
+
+function getField(row: any[], headers: string[], map: Record<string, number>, key: string): any {
+  const idx = map[key]
+  if (idx == null) return null
+  return row[idx]
+}
 
 /* ─────────────────────────────────────────────
  * 거래처/공급처/상품 — 평탄한 표 엑셀 일괄 등록 (공용)
@@ -79,11 +129,25 @@ export default function FlatImportButton({ entity, onImported }: {
 }) {
   const spec = SPECS[entity]
   const fileRef = useRef<HTMLInputElement>(null)
-  const [rows, setRows] = useState<any[]>([])
+  const [rows, setRows] = useState<any[][]>([])
   const [headers, setHeaders] = useState<string[]>([])
+  const [headerMap, setHeaderMap] = useState<Record<string, number>>({})
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ ok: number; fail: number; errors: string[] } | null>(null)
+
+  // 거래처가 파일에 없을 때 사용자가 선택할 fallback 거래처
+  const [vendors, setVendors] = useState<Vendor[]>([])
+  const [overrideVendorId, setOverrideVendorId] = useState<string>('')
+
+  // Drawer 열릴 때 거래처 목록 로드 (entity === 'products' 일 때만 필요)
+  useEffect(() => {
+    if (drawerOpen && entity === 'products' && vendors.length === 0) {
+      supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name').then(({ data }) => {
+        setVendors((data ?? []) as Vendor[])
+      })
+    }
+  }, [drawerOpen, entity, vendors.length])
 
   function downloadTemplate() {
     const headerRow = spec.columns.map(c => c.label)
@@ -107,14 +171,13 @@ export default function FlatImportButton({ entity, onImported }: {
         const headerRow = (json[0] as any[]).map(h => String(h ?? '').trim())
         const dataRows = json.slice(1)
           .filter(r => r.some(c => c !== null && c !== ''))
-          .map(r => {
-            const obj: any = {}
-            headerRow.forEach((h, i) => { obj[h] = r[i] ?? null })
-            return obj
-          })
+          .map(r => r.slice(0, headerRow.length))
+        const map = buildHeaderMap(headerRow)
         setHeaders(headerRow)
+        setHeaderMap(map)
         setRows(dataRows)
         setResult(null)
+        setOverrideVendorId('')
         setDrawerOpen(true)
       } catch (err: any) {
         alert('파일 읽기 오류: ' + err.message)
@@ -124,6 +187,11 @@ export default function FlatImportButton({ entity, onImported }: {
     if (fileRef.current) fileRef.current.value = ''
   }
 
+  // 어떤 표준 필드가 매칭됐는지
+  const matchedFields = Object.keys(headerMap)
+  // 거래처명 컬럼이 파일에 있나?
+  const hasVendorColumn = headerMap.vendor_name != null
+
   function clean(v: any): string | null {
     if (v === null || v === undefined) return null
     const s = String(v).trim()
@@ -132,24 +200,29 @@ export default function FlatImportButton({ entity, onImported }: {
 
   async function doImport() {
     if (rows.length === 0) return
+    // products + no vendor column + no override → require vendor pick
+    if (entity === 'products' && !hasVendorColumn && !overrideVendorId) {
+      return alert('파일에 거래처명 컬럼이 없어요. 위에서 거래처를 골라주세요.')
+    }
     if (!confirm(`${rows.length}건을 등록할까요?`)) return
     setImporting(true)
     setResult(null)
     let ok = 0, fail = 0
     const errors: string[] = []
 
+    const field = (row: any[], key: string) => getField(row, headers, headerMap, key)
+
     try {
       if (entity === 'customers' || entity === 'suppliers') {
         const type = entity === 'customers' ? 'customer' : 'supplier'
         for (const r of rows) {
-          const name = clean(r.거래처명 || r.공급처명 || r.name)
+          const name = clean(field(r, 'vendor_name'))
           if (!name) { fail++; errors.push('이름 누락'); continue }
-          const sizeStr = String(r.사이즈체계 || r['사이즈 체계'] || '').trim()
+          const sizeStr = String(field(r, 'size_system') || '').trim()
           const sizes = sizeStr ? sizeStr.split(/[,\s]+/).map(s => s.trim()).filter(Boolean) : []
-          const cat = clean(r.분류)
-          const items = clean(r.품목)
-          const memoBody = clean(r.메모)
-          // 메모 합치기: [분류] | 품목: A,B,C | 메모본문
+          const cat = clean(field(r, 'category'))
+          const items = clean(field(r, 'items'))
+          const memoBody = clean(field(r, 'notes'))
           const parts: string[] = []
           if (cat) parts.push(`[${cat}]`)
           if (items) parts.push(`품목: ${items}`)
@@ -159,13 +232,13 @@ export default function FlatImportButton({ entity, onImported }: {
           const payload: any = {
             name,
             vendor_type: type,
-            company_name: type === 'customer' ? clean(r.회사명) : null,
-            business_number: clean(r.사업자번호),
-            ceo_name: clean(r.대표자),
-            address: clean(r.주소),
-            phone: clean(r.전화번호),
-            email: type === 'customer' ? clean(r.이메일) : null,
-            bank_info: type === 'customer' ? clean(r.계좌정보) : null,
+            company_name: type === 'customer' ? clean(field(r, 'company_name')) : null,
+            business_number: clean(field(r, 'business_number')),
+            ceo_name: clean(field(r, 'ceo_name')),
+            address: clean(field(r, 'address')),
+            phone: clean(field(r, 'phone')),
+            email: type === 'customer' ? clean(field(r, 'email')) : null,
+            bank_info: type === 'customer' ? clean(field(r, 'bank_info')) : null,
             memo,
             size_system: type === 'customer' ? sizes : [],
           }
@@ -174,36 +247,45 @@ export default function FlatImportButton({ entity, onImported }: {
           else ok++
         }
       } else if (entity === 'products') {
-        // 거래처 매핑
         const { data: vData } = await supabase.from('vendors').select('id, name').eq('vendor_type', 'customer')
         const vendorByName = new Map<string, string>()
         ;(vData ?? []).forEach((v: any) => vendorByName.set(v.name, v.id))
 
         for (const r of rows) {
-          const vName = clean(r.거래처명)
-          const code = clean(r.품번)
-          const name = clean(r.품목명 || r.품명)
-          if (!vName || !code || !name) { fail++; errors.push('거래처명/품번/품목명 누락'); continue }
-          let vId = vendorByName.get(vName)
-          if (!vId) {
-            // 거래처 자동 생성
-            const { data: newV, error: vErr } = await supabase.from('vendors').insert({
-              name: vName,
-              vendor_type: 'customer',
-              size_system: [],
-            }).select().single()
-            if (vErr) { fail++; errors.push(`${vName} 자동 생성 실패: ${vErr.message}`); continue }
-            vId = newV.id
-            vendorByName.set(vName, newV.id)
+          const vName = clean(field(r, 'vendor_name'))
+          const code = clean(field(r, 'code'))
+          const name = clean(field(r, 'name_ko'))
+          if (!code || !name) { fail++; errors.push('품번 또는 품목명 누락'); continue }
+
+          let vId: string | undefined
+          if (vName) {
+            vId = vendorByName.get(vName)
+            if (!vId) {
+              // 자동 생성
+              const { data: newV, error: vErr } = await supabase.from('vendors').insert({
+                name: vName,
+                vendor_type: 'customer',
+                size_system: [],
+              }).select().single()
+              if (vErr) { fail++; errors.push(`${vName} 자동 생성 실패: ${vErr.message}`); continue }
+              vId = newV.id
+              vendorByName.set(vName, newV.id)
+            }
+          } else {
+            // 파일에 거래처 없으면 사용자가 고른 거 사용
+            vId = overrideVendorId
           }
+
+          if (!vId) { fail++; errors.push(`${code}: 거래처 미지정`); continue }
+
           const payload = {
             vendor_id: vId,
             code,
             name,
-            name_en: clean(r.영문명 || r.name_en),
-            color: clean(r.컬러),
-            selling_price: Number(r.판매가 || 0),
-            notes: clean(r.메모),
+            name_en: clean(field(r, 'name_en')),
+            color: clean(field(r, 'color')),
+            selling_price: Number(field(r, 'selling_price') || 0),
+            notes: clean(field(r, 'notes')),
           }
           const { error } = await supabase.from('products').insert(payload)
           if (error) { fail++; errors.push(`${code}: ${error.message}`) }
@@ -246,7 +328,7 @@ export default function FlatImportButton({ entity, onImported }: {
         {/* 양식 안내 */}
         <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-[12px] text-blue-900">
           <p className="font-semibold mb-2">{spec.description}</p>
-          <p className="mb-2">컬럼 헤더는 다음과 정확히 일치해야 해요:</p>
+          <p className="mb-2">컬럼명이 달라도 자동 매칭 (예: 품번/Code, 납품가/판매가, 상품명(국문)/품목명 등):</p>
           <div className="flex flex-wrap gap-1.5 mb-2">
             {spec.columns.map(c => (
               <Badge key={c.key} color={c.required ? 'rose' : 'zinc'}>{c.label}{c.required && '*'}</Badge>
@@ -256,6 +338,38 @@ export default function FlatImportButton({ entity, onImported }: {
             📥 빈 양식 다운로드
           </button>
         </div>
+
+        {rows.length > 0 && (
+          <div className="mb-4 p-3 rounded-lg bg-zinc-50 border border-zinc-200 text-[12px]">
+            <p className="font-semibold mb-1.5 text-zinc-700">자동 인식된 컬럼</p>
+            <div className="flex flex-wrap gap-1.5">
+              {matchedFields.length === 0 ? (
+                <span className="text-rose-600">매칭된 컬럼이 없어요 — 헤더 확인 필요</span>
+              ) : (
+                matchedFields.map(k => (
+                  <Badge key={k} color="green">{k} ← {headers[headerMap[k]]}</Badge>
+                ))
+              )}
+            </div>
+          </div>
+        )}
+
+        {entity === 'products' && rows.length > 0 && !hasVendorColumn && (
+          <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
+            <Label required>거래처 선택 (파일에 거래처명 컬럼이 없어요)</Label>
+            <Select value={overrideVendorId} onChange={e => setOverrideVendorId(e.target.value)}>
+              <option value="">— 선택 —</option>
+              {vendors.map(v => (
+                <option key={v.id} value={v.id}>
+                  {v.name}{v.company_name ? ` (${v.company_name})` : ''}
+                </option>
+              ))}
+            </Select>
+            <p className="text-[11px] text-zinc-600 mt-1.5">
+              이 파일의 모든 상품이 위 거래처에 등록됩니다.
+            </p>
+          </div>
+        )}
 
         {rows.length === 0 ? (
           <Empty icon="📂" title="파일을 다시 선택해주세요" />
@@ -267,16 +381,16 @@ export default function FlatImportButton({ entity, onImported }: {
                 <thead className="bg-zinc-50 sticky top-0">
                   <tr>
                     <th className="px-2 py-1.5 text-left w-10">#</th>
-                    {headers.map(h => <th key={h} className="px-2 py-1.5 text-left whitespace-nowrap">{h}</th>)}
+                    {headers.map((h, i) => <th key={i} className="px-2 py-1.5 text-left whitespace-nowrap">{h}</th>)}
                   </tr>
                 </thead>
                 <tbody>
                   {rows.slice(0, 100).map((r, i) => (
                     <tr key={i} className="border-t border-zinc-100">
                       <td className="px-2 py-1 text-zinc-400">{i + 1}</td>
-                      {headers.map(h => (
-                        <td key={h} className="px-2 py-1 whitespace-nowrap">
-                          {r[h] ?? <span className="text-zinc-300">—</span>}
+                      {headers.map((_, ci) => (
+                        <td key={ci} className="px-2 py-1 whitespace-nowrap">
+                          {r[ci] != null && r[ci] !== '' ? String(r[ci]) : <span className="text-zinc-300">—</span>}
                         </td>
                       ))}
                     </tr>
