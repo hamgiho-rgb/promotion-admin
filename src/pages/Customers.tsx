@@ -154,24 +154,39 @@ export default function Customers() {
     exportSheet(data, '고객거래처', '고객거래처')
   }
 
+  // 최고 매출 거래처 (이번 달)
+  const topVendor = [...filtered].sort((a, b) => (statsMap.get(b.id)?.thisMonthRevenue || 0) - (statsMap.get(a.id)?.thisMonthRevenue || 0))[0]
+  const topVendorAmount = topVendor ? (statsMap.get(topVendor.id)?.thisMonthRevenue || 0) : 0
+
   return (
     <div>
-      <PageHeader
-        title="고객 거래처"
-        description="내가 상품을 납품하는 브랜드/거래처. 거래처를 클릭하면 매출 상세를 볼 수 있어요."
-        action={<>
-          <Button variant="secondary" onClick={handleExport}>📥 엑셀 내보내기</Button>
-          <FlatImportButton entity="customers" onImported={load} />
-          <Button onClick={() => { setEditing(null); setDrawerOpen(true) }}>＋ 새 고객 거래처</Button>
-        </>}
-      />
+      {/* 그라데이션 헤더 — 이번 달 매출 강조 */}
+      <div className="mb-5 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-emerald-700 via-emerald-800 to-zinc-900 text-white rounded-b-3xl">
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-emerald-200 mb-1">CUSTOMERS</p>
+            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">고객 거래처</h1>
+            <p className="text-[12px] text-emerald-100/80 mt-1">내가 상품을 납품하는 브랜드 · 거래처별 매출 상세 보기</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="secondary" onClick={handleExport} className="bg-white/10 hover:bg-white/20 text-white border-white/20">📥 엑셀</Button>
+            <FlatImportButton entity="customers" onImported={load} />
+            <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} className="bg-white text-emerald-900 hover:bg-emerald-50">＋ 새 거래처</Button>
+          </div>
+        </div>
+        {topVendor && topVendorAmount > 0 && (
+          <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-[12px] text-emerald-50">
+            👑 이번 달 최고 매출: <span className="font-bold">{topVendor.name}</span> · ₩{topVendorAmount.toLocaleString()}
+          </div>
+        )}
+      </div>
 
-      {/* 통계 카드 */}
+      {/* 통계 카드 — 컬러 강조 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <StatCard label="총 거래처" value={`${filtered.length}개`} hint="고객 등록 수" onClick={() => setTab('all')} />
-        <StatCard label="이번 달 매출" value={`₩${totalThisMonth.toLocaleString()}`} hint="전체 거래처 합계" onClick={() => setTab('sales')} />
-        <StatCard label="올해 누적 매출" value={`₩${totalYtd.toLocaleString()}`} hint={`${new Date().getFullYear()}년`} onClick={() => setTab('sales')} />
-        <StatCard label="평균 거래처당" value={filtered.length ? `₩${Math.round(totalYtd / filtered.length).toLocaleString()}` : '₩0'} hint="올해 기준" onClick={() => setTab('sales')} />
+        <StatCard label="총 거래처" value={`${filtered.length}개`} hint="고객 등록 수" onClick={() => setTab('all')} accent="zinc" />
+        <StatCard label="이번 달 매출" value={`₩${totalThisMonth.toLocaleString()}`} hint="전체 거래처 합계" onClick={() => setTab('sales')} accent="green" />
+        <StatCard label="올해 누적 매출" value={`₩${totalYtd.toLocaleString()}`} hint={`${new Date().getFullYear()}년`} onClick={() => setTab('sales')} accent="blue" />
+        <StatCard label="평균 거래처당" value={filtered.length ? `₩${Math.round(totalYtd / filtered.length).toLocaleString()}` : '₩0'} hint="올해 기준" onClick={() => setTab('sales')} accent="violet" />
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
@@ -301,12 +316,23 @@ function MergeVendorModal({ from, candidates, onClose, onConfirm }: {
   )
 }
 
-function StatCard({ label, value, hint, onClick }: { label: string; value: string; hint?: string; onClick?: () => void }) {
+function StatCard({ label, value, hint, onClick, accent }: { label: string; value: string; hint?: string; onClick?: () => void; accent?: 'zinc' | 'blue' | 'green' | 'amber' | 'violet' }) {
+  const palettes = {
+    zinc:   { bg: 'from-zinc-50 to-white border-zinc-200',           hover: 'hover:border-zinc-400 hover:from-zinc-100',           text: 'text-zinc-900' },
+    blue:   { bg: 'from-blue-50 to-white border-blue-100',           hover: 'hover:border-blue-300 hover:from-blue-100',           text: 'text-blue-900' },
+    green:  { bg: 'from-emerald-50 to-white border-emerald-100',     hover: 'hover:border-emerald-300 hover:from-emerald-100',     text: 'text-emerald-900' },
+    amber:  { bg: 'from-amber-50 to-white border-amber-100',         hover: 'hover:border-amber-300 hover:from-amber-100',         text: 'text-amber-900' },
+    violet: { bg: 'from-violet-50 to-white border-violet-100',       hover: 'hover:border-violet-300 hover:from-violet-100',       text: 'text-violet-900' },
+  }
+  const p = accent ? palettes[accent] : null
+  const baseClass = p
+    ? `bg-gradient-to-br ${p.bg} ${onClick ? `cursor-pointer transition-colors ${p.hover}` : ''}`
+    : `bg-white border-zinc-200 ${onClick ? 'hover:border-zinc-400 hover:bg-zinc-50/50 cursor-pointer transition-colors' : ''}`
   const inner = (
-    <div className={`bg-white border border-zinc-200 rounded-2xl p-4 text-left ${onClick ? 'hover:border-zinc-400 hover:bg-zinc-50/50 cursor-pointer transition-colors' : ''}`}>
+    <div className={`border rounded-2xl p-4 text-left ${baseClass}`}>
       <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="text-[20px] font-bold text-zinc-900 mt-1 tabular-nums">{value}</p>
-      {hint && <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center justify-between"><span>{hint}</span>{onClick && <span>→</span>}</p>}
+      <p className={`text-[20px] font-bold mt-1 tabular-nums ${p?.text || 'text-zinc-900'}`}>{value}</p>
+      {hint && <p className="text-[11px] text-zinc-500 mt-1 flex items-center justify-between"><span>{hint}</span>{onClick && <span className="text-zinc-400">→</span>}</p>}
     </div>
   )
   return onClick ? <button onClick={onClick} className="block w-full">{inner}</button> : inner

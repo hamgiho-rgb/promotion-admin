@@ -3,6 +3,8 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Button, Drawer, Badge, Empty } from '@/components/ui'
 import { isInvoiceReceiptFormat, parseInvoiceReceiptWorkbook, type ReceiptInvoice } from '@/lib/invoiceReceiptImport'
+import { findVendorByFuzzyName } from '@/lib/vendorMatch'
+import type { Vendor } from '@/lib/types'
 
 const SUPPLIER = {
   supplier_business_number: '216-21-18212',
@@ -59,11 +61,12 @@ export default function InvoiceImportButton({ onImported }: { onImported: () => 
 
     try {
       const { data: vendorsData } = await supabase.from('vendors').select('*').eq('vendor_type', 'customer')
-      const vendorByName = new Map<string, any>()
-      ;(vendorsData ?? []).forEach(v => vendorByName.set(v.name, v))
+      const vendorsList: Vendor[] = (vendorsData ?? []) as Vendor[]
+      // fuzzy 매칭: 회사명 변형 자동 매칭 → 중복 거래처 생성 방지
+      const cachedNewVendors: Vendor[] = []
 
       for (const inv of invoices) {
-        let vendor = vendorByName.get(inv.vendor_name)
+        let vendor = findVendorByFuzzyName(inv.vendor_name, [...vendorsList, ...cachedNewVendors], 'customer')
         if (!vendor) {
           const { data: newV, error: cErr } = await supabase.from('vendors').insert({
             name: inv.vendor_name,
@@ -75,8 +78,8 @@ export default function InvoiceImportButton({ onImported }: { onImported: () => 
             errors.push(`${inv.vendor_name}: 거래처 자동 생성 실패 ${cErr.message}`)
             continue
           }
-          vendor = newV
-          vendorByName.set(inv.vendor_name, newV)
+          vendor = newV as Vendor
+          cachedNewVendors.push(vendor)
         }
 
         const subtotal = inv.subtotal

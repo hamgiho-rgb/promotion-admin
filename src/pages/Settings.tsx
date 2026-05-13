@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
 import { supabase } from '@/lib/supabase'
-import { Button, Input, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
+import { Button, Input, Label, PageHeader, Drawer, Empty, Badge, Select } from '@/components/ui'
 import { getCurrentUser, lock, type AppUser } from '@/components/PinGate'
+import { downloadFullBackup } from '@/lib/backupExport'
 
 /* ────────────────────────────────────────────────
  * 설정 / 사용자 관리
@@ -164,6 +165,9 @@ export default function Settings() {
         )}
       </div>
 
+      {/* 데이터 백업 섹션 */}
+      <BackupSection />
+
       <UserDrawer
         open={drawerOpen}
         onClose={() => setDrawerOpen(false)}
@@ -172,6 +176,86 @@ export default function Settings() {
         isAdmin={isAdmin}
         onSaved={() => { setDrawerOpen(false); load() }}
       />
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 데이터 일괄 백업 — 회계/세무 보관용 + 실수 복구용
+ * 모든 테이블(거래처·상품·견적·계산서·입고·공급처계산서)을 한 엑셀에 시트로
+ * ───────────────────────────────────────────── */
+function BackupSection() {
+  const currentYear = new Date().getFullYear()
+  const [year, setYear] = useState<string>(String(currentYear))
+  const [running, setRunning] = useState(false)
+  const [progress, setProgress] = useState<string>('')
+  const [lastResult, setLastResult] = useState<{ ok: boolean; error?: string; at: string } | null>(null)
+
+  async function handleDownload() {
+    setRunning(true); setProgress('시작…'); setLastResult(null)
+    const yearNum = year === 'all' ? null : Number(year)
+    const result = await downloadFullBackup({
+      year: yearNum,
+      onProgress: msg => setProgress(msg),
+    })
+    setRunning(false)
+    setLastResult({ ...result, at: new Date().toLocaleString('ko-KR') })
+  }
+
+  return (
+    <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden mt-6">
+      <div className="px-5 py-4 border-b border-zinc-100 bg-gradient-to-r from-amber-50 to-white">
+        <h3 className="text-[14px] font-semibold text-zinc-900 flex items-center gap-2">
+          💾 데이터 일괄 백업
+        </h3>
+        <p className="text-[11px] text-zinc-600 mt-0.5">
+          거래처·상품·견적서·계산서·입고·공급처 계산서를 한 엑셀 파일에 시트별로 받아 보관.
+          매월 또는 매분기 한 번씩 받아두면 회계/세무용 자료가 됩니다.
+        </p>
+      </div>
+
+      <div className="px-5 py-5 space-y-4">
+        <div className="grid grid-cols-1 sm:grid-cols-[1fr_auto] gap-3 items-end">
+          <div>
+            <Label>기간 선택</Label>
+            <Select value={year} onChange={e => setYear(e.target.value)}>
+              <option value="all">전체 (모든 데이터)</option>
+              {[0, 1, 2, 3, 4].map(offset => {
+                const y = currentYear - offset
+                return <option key={y} value={String(y)}>{y}년</option>
+              })}
+            </Select>
+            <p className="text-[11px] text-zinc-500 mt-1">
+              {year === 'all'
+                ? '⚠ 전체는 데이터가 많을수록 시간이 걸립니다.'
+                : `${year}년에 발행된 견적·계산서·입고 + 모든 거래처·상품(연도 무관)`}
+            </p>
+          </div>
+          <Button onClick={handleDownload} disabled={running}>
+            {running ? '받는 중…' : '📥 엑셀로 받기'}
+          </Button>
+        </div>
+
+        {running && (
+          <div className="bg-blue-50 border border-blue-200 rounded-lg p-3 text-[12px] text-blue-800 flex items-center gap-2">
+            <span className="inline-block w-3 h-3 rounded-full bg-blue-500 animate-pulse"></span>
+            {progress}
+          </div>
+        )}
+
+        {lastResult && !running && (
+          <div className={`border rounded-lg p-3 text-[12px] ${lastResult.ok ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-800'}`}>
+            {lastResult.ok
+              ? <>✅ 백업 완료 · {lastResult.at}</>
+              : <>❌ 실패: {lastResult.error} · {lastResult.at}</>}
+          </div>
+        )}
+
+        <div className="text-[11px] text-zinc-500 bg-zinc-50 rounded-lg p-3 border border-zinc-100">
+          💡 <strong>왜 백업?</strong> Supabase가 자동 백업을 해주지만, 실수로 삭제했을 때 부분 복구가 어렵고
+          회계·세무용으로 매월 인쇄/보관할 자료가 필요할 수 있어요. 매월 1일 또는 결산 시점에 한 번씩 받아두세요.
+        </div>
+      </div>
     </div>
   )
 }

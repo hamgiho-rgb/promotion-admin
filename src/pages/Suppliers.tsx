@@ -156,22 +156,31 @@ export default function Suppliers() {
 
   return (
     <div>
-      <PageHeader
-        title="공급처 관리"
-        description="원단·부자재·공임·포장 등을 사오는 거래처. 공급처를 클릭하면 취급 재료를 볼 수 있어요."
-        action={<>
-          <Button variant="secondary" onClick={handleExport}>📥 엑셀 내보내기</Button>
-          <FlatImportButton entity="suppliers" onImported={load} />
-          <Button onClick={() => { setEditing(null); setDrawerOpen(true) }}>＋ 새 공급처</Button>
-        </>}
-      />
+      {/* 그라데이션 헤더 — 공급처는 보라색 톤 */}
+      <div className="mb-5 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-violet-700 via-violet-800 to-zinc-900 text-white rounded-b-3xl">
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-violet-200 mb-1">SUPPLIERS</p>
+            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">공급처 관리</h1>
+            <p className="text-[12px] text-violet-100/80 mt-1">원단·부자재·공임·포장 등을 사오는 거래처 · 클릭하면 취급 재료 보기</p>
+          </div>
+          <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="secondary" onClick={handleExport} className="bg-white/10 hover:bg-white/20 text-white border-white/20">📥 엑셀</Button>
+            <FlatImportButton entity="suppliers" onImported={load} />
+            <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} className="bg-white text-violet-900 hover:bg-violet-50">＋ 새 공급처</Button>
+          </div>
+        </div>
+        <div className="mt-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/10 text-[12px] text-violet-50">
+          🏭 총 <span className="font-bold">{filtered.length}곳</span>의 공급처
+        </div>
+      </div>
 
-      {/* 통계 카드 */}
+      {/* 통계 카드 — 컬러 강조 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <StatCard label="총 공급처" value={`${filtered.length}개`} hint="등록된 공급처" onClick={() => setTab('all')} />
-        <StatCard label="원단·립" value={`${(byCategory.get('원단') || 0) + (byCategory.get('립') || 0)}곳`} hint="원단/립 분류" onClick={() => setTab('materials')} />
-        <StatCard label="가공" value={`${(byCategory.get('나염/프린트') || 0) + (byCategory.get('자수') || 0) + (byCategory.get('워싱') || 0)}곳`} hint="나염·자수·워싱" onClick={() => setTab('materials')} />
-        <StatCard label="공임·기타" value={`${(byCategory.get('공임') || 0) + (byCategory.get('포장') || 0) + (byCategory.get('라벨') || 0) + (byCategory.get('부자재') || 0)}곳`} hint="공임·포장·라벨·부자재" onClick={() => setTab('materials')} />
+        <StatCard label="총 공급처" value={`${filtered.length}개`} hint="등록된 공급처" onClick={() => setTab('all')} accent="zinc" />
+        <StatCard label="원단·립" value={`${(byCategory.get('원단') || 0) + (byCategory.get('립') || 0)}곳`} hint="원단/립 분류" onClick={() => setTab('materials')} accent="blue" />
+        <StatCard label="가공" value={`${(byCategory.get('나염/프린트') || 0) + (byCategory.get('자수') || 0) + (byCategory.get('워싱') || 0)}곳`} hint="나염·자수·워싱" onClick={() => setTab('materials')} accent="violet" />
+        <StatCard label="공임·기타" value={`${(byCategory.get('공임') || 0) + (byCategory.get('포장') || 0) + (byCategory.get('라벨') || 0) + (byCategory.get('부자재') || 0)}곳`} hint="공임·포장·라벨·부자재" onClick={() => setTab('materials')} accent="amber" />
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
@@ -303,12 +312,23 @@ function MergeVendorModal({ from, candidates, onClose, onConfirm }: {
   )
 }
 
-function StatCard({ label, value, hint, onClick }: { label: string; value: string; hint?: string; onClick?: () => void }) {
+function StatCard({ label, value, hint, onClick, accent }: { label: string; value: string; hint?: string; onClick?: () => void; accent?: 'zinc' | 'blue' | 'green' | 'amber' | 'violet' }) {
+  const palettes = {
+    zinc:   { bg: 'from-zinc-50 to-white border-zinc-200',           hover: 'hover:border-zinc-400 hover:from-zinc-100',           text: 'text-zinc-900' },
+    blue:   { bg: 'from-blue-50 to-white border-blue-100',           hover: 'hover:border-blue-300 hover:from-blue-100',           text: 'text-blue-900' },
+    green:  { bg: 'from-emerald-50 to-white border-emerald-100',     hover: 'hover:border-emerald-300 hover:from-emerald-100',     text: 'text-emerald-900' },
+    amber:  { bg: 'from-amber-50 to-white border-amber-100',         hover: 'hover:border-amber-300 hover:from-amber-100',         text: 'text-amber-900' },
+    violet: { bg: 'from-violet-50 to-white border-violet-100',       hover: 'hover:border-violet-300 hover:from-violet-100',       text: 'text-violet-900' },
+  }
+  const p = accent ? palettes[accent] : null
+  const baseClass = p
+    ? `bg-gradient-to-br ${p.bg} ${onClick ? `cursor-pointer transition-colors ${p.hover}` : ''}`
+    : `bg-white border-zinc-200 ${onClick ? 'hover:border-zinc-400 hover:bg-zinc-50/50 cursor-pointer transition-colors' : ''}`
   const inner = (
-    <div className={`bg-white border border-zinc-200 rounded-2xl p-4 text-left ${onClick ? 'hover:border-zinc-400 hover:bg-zinc-50/50 cursor-pointer transition-colors' : ''}`}>
+    <div className={`border rounded-2xl p-4 text-left ${baseClass}`}>
       <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="text-[20px] font-bold text-zinc-900 mt-1 tabular-nums">{value}</p>
-      {hint && <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center justify-between"><span>{hint}</span>{onClick && <span>→</span>}</p>}
+      <p className={`text-[20px] font-bold mt-1 tabular-nums ${p?.text || 'text-zinc-900'}`}>{value}</p>
+      {hint && <p className="text-[11px] text-zinc-500 mt-1 flex items-center justify-between"><span>{hint}</span>{onClick && <span className="text-zinc-400">→</span>}</p>}
     </div>
   )
   return onClick ? <button onClick={onClick} className="block w-full">{inner}</button> : inner

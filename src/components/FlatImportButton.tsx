@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Button, Drawer, Badge, Empty, Select, Label } from '@/components/ui'
 import type { Vendor } from '@/lib/types'
+import { findVendorByFuzzyName } from '@/lib/vendorMatch'
 
 /* ─────────────────────────────────────────────
  * 컬럼명 자동 매칭 — 헤더 이름이 달라도 인식
@@ -217,6 +218,12 @@ export default function FlatImportButton({ entity, onImported }: {
     try {
       if (entity === 'customers' || entity === 'suppliers') {
         const type = entity === 'customers' ? 'customer' : 'supplier'
+        // fuzzy 매칭용: 기존 거래처 + 같은 import 안에서 만든 거 캐시
+        const { data: existing } = await supabase.from('vendors').select('*').eq('vendor_type', type)
+        const existingList: Vendor[] = (existing ?? []) as Vendor[]
+        const cachedNew: Vendor[] = []
+        let updated = 0
+
         for (const r of rows) {
           const name = clean(field(r, 'vendor_name'))
           if (!name) { fail++; errors.push('이름 누락'); continue }
@@ -231,9 +238,7 @@ export default function FlatImportButton({ entity, onImported }: {
           if (memoBody) parts.push(memoBody)
           const memo = parts.length ? parts.join(' | ') : null
 
-          const payload: any = {
-            name,
-            vendor_type: type,
+          const basePayload: any = {
             company_name: type === 'customer' ? clean(field(r, 'company_name')) : null,
             business_number: clean(field(r, 'business_number')),
             ceo_name: clean(field(r, 'ceo_name')),
@@ -244,14 +249,32 @@ export default function FlatImportButton({ entity, onImported }: {
             memo,
             size_system: type === 'customer' ? sizes : [],
           }
-          const { error } = await supabase.from('vendors').insert(payload)
+
+          // 1) 같은 거래처(변형 포함) 이미 있으면 → 업데이트만 (중복 생성 방지)
+          const existed = findVendorByFuzzyName(name, [...existingList, ...cachedNew], type)
+          if (existed) {
+            // 빈 필드만 채워서 업데이트 (기존 값 덮어쓰지 않음)
+            const updatePayload: Record<string, any> = {}
+            for (const [k, v] of Object.entries(basePayload)) {
+              if (v != null && v !== '' && !(existed as any)[k]) updatePayload[k] = v
+            }
+            if (Object.keys(updatePayload).length > 0) {
+              await supabase.from('vendors').update(updatePayload).eq('id', existed.id)
+            }
+            updated++
+            continue
+          }
+
+          // 2) 진짜 새 거래처
+          const { data: newV, error } = await supabase.from('vendors').insert({ name, vendor_type: type, ...basePayload }).select().single()
           if (error) { fail++; errors.push(`${name}: ${error.message}`) }
-          else ok++
+          else { ok++; cachedNew.push(newV as Vendor) }
         }
+        if (updated > 0) errors.unshift(`✓ ${updated}건은 기존 거래처(이름 변형 포함)에 병합되었습니다.`)
       } else if (entity === 'products') {
-        const { data: vData } = await supabase.from('vendors').select('id, name').eq('vendor_type', 'customer')
-        const vendorByName = new Map<string, string>()
-        ;(vData ?? []).forEach((v: any) => vendorByName.set(v.name, v.id))
+        const { data: vData } = await supabase.from('vendors').select('*').eq('vendor_type', 'customer')
+        const vendorsList: Vendor[] = (vData ?? []) as Vendor[]
+        const cachedNew: Vendor[] = []
 
         for (const r of rows) {
           const vName = clean(field(r, 'vendor_name'))
@@ -261,9 +284,12 @@ export default function FlatImportButton({ entity, onImported }: {
 
           let vId: string | undefined
           if (vName) {
-            vId = vendorByName.get(vName)
-            if (!vId) {
-              // 자동 생성
+            // fuzzy 매칭 — "마요네즈"/"주식회사마요네즈"/"단델(마요네즈)" 같은 변형 같은 거래처로 매칭
+            const matched = findVendorByFuzzyName(vName, [...vendorsList, ...cachedNew], 'customer')
+            if (matched) {
+              vId = matched.id
+            } else {
+              // 진짜 새 거래처 자동 생성
               const { data: newV, error: vErr } = await supabase.from('vendors').insert({
                 name: vName,
                 vendor_type: 'customer',
@@ -271,7 +297,7 @@ export default function FlatImportButton({ entity, onImported }: {
               }).select().single()
               if (vErr) { fail++; errors.push(`${vName} 자동 생성 실패: ${vErr.message}`); continue }
               vId = newV.id
-              vendorByName.set(vName, newV.id)
+              cachedNew.push(newV as Vendor)
             }
           } else {
             // 파일에 거래처 없으면 사용자가 고른 거 사용

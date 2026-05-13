@@ -3,6 +3,8 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Button, Drawer, Badge, Empty } from '@/components/ui'
 import { isAWIncomingFormat, parseAWWorkbook, type AWReceipt } from '@/lib/awImport'
+import { findVendorByFuzzyName } from '@/lib/vendorMatch'
+import type { Vendor } from '@/lib/types'
 
 /* ─────────────────────────────────────────────
  * 입고내역서 페이지에 박는 엑셀 일괄 등록 버튼
@@ -56,15 +58,17 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
 
     try {
       const { data: vendorsData } = await supabase.from('vendors').select('*').eq('vendor_type', 'customer')
-      const vendorByName = new Map<string, any>()
-      ;(vendorsData ?? []).forEach(v => vendorByName.set(v.name, v))
+      const vendorsList: Vendor[] = (vendorsData ?? []) as Vendor[]
+      // fuzzy 매칭: "마요네즈"/"주식회사마요네즈"/"단델(마요네즈)" 같은 변형을 같은 거래처로 잡음
+      // 같은 import 작업 안에서 새로 만들어진 거래처도 캐시에 추가
+      const cachedNewVendors: Vendor[] = []
 
       const { data: productsData } = await supabase.from('products').select('id, code')
       const productByCode = new Map<string, string>()
       ;(productsData ?? []).forEach(p => { if (p.code) productByCode.set(p.code, p.id) })
 
       for (const receipt of receipts) {
-        let vendor = vendorByName.get(receipt.vendor_name)
+        let vendor = findVendorByFuzzyName(receipt.vendor_name, [...vendorsList, ...cachedNewVendors], 'customer')
         if (!vendor) {
           const { data: newV, error: cErr } = await supabase.from('vendors').insert({
             name: receipt.vendor_name,
@@ -76,8 +80,8 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
             errors.push(`${receipt.vendor_name}: 거래처 자동 생성 실패 ${cErr.message}`)
             continue
           }
-          vendor = newV
-          vendorByName.set(receipt.vendor_name, newV)
+          vendor = newV as Vendor
+          cachedNewVendors.push(vendor)
         }
         if (!vendor.size_system || vendor.size_system.length === 0) {
           await supabase.from('vendors').update({ size_system: receipt.sizeLabels }).eq('id', vendor.id)
