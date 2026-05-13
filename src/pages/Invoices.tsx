@@ -441,9 +441,22 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  }
 
  async function loadImportable(vendorId: string) {
- const { data: incomings } = await supabase.from('incoming').select('id').eq('vendor_id', vendorId)
+ const { data: incomings } = await supabase.from('incoming').select('id, period, created_at').eq('vendor_id', vendorId)
  const ids = (incomings ?? []).map(i => i.id)
  if (ids.length === 0) { setImportGroups([]); return }
+
+ // 입고별 fallback 날짜 (라인에 delivery_date가 없으면 사용)
+ const incomingDateFallback = new Map<string, string>()
+ ;(incomings ?? []).forEach((inc: any) => {
+   // period "2026.05" → "2026-05-01" 형태, 없으면 created_at의 날짜 부분
+   let fallback = ''
+   if (inc.period) {
+     const m = String(inc.period).match(/(\d{4})[.\-/](\d{1,2})/)
+     if (m) fallback = `${m[1]}-${m[2].padStart(2, '0')}-01`
+   }
+   if (!fallback && inc.created_at) fallback = String(inc.created_at).slice(0, 10)
+   if (fallback) incomingDateFallback.set(inc.id, fallback)
+ })
 
  const { data: rawItems } = await supabase
  .from('incoming_items')
@@ -464,8 +477,9 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
 
  const map = new Map<string, Map<string, ImportableItem>>()
  ;(rawItems ?? []).forEach((it: any) => {
- if (!it.delivery_date) return
- const dKey = it.delivery_date
+ const itemDate = it.delivery_date || incomingDateFallback.get(it.incoming_id) || ''
+ if (!itemDate) return   // 그래도 정말 아무 날짜도 없으면 스킵
+ const dKey = itemDate
  const pKey = it.product_code || it.product_id || 'unknown'
  if (!map.has(dKey)) map.set(dKey, new Map())
  const dMap = map.get(dKey)!

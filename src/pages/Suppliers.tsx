@@ -61,6 +61,7 @@ export default function Suppliers() {
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [editing, setEditing] = useState<Vendor | null>(null)
   const [materialDrawer, setMaterialDrawer] = useState<Vendor | null>(null)
+  const [mergingFrom, setMergingFrom] = useState<Vendor | null>(null)
 
   async function load() {
     setLoading(true)
@@ -91,6 +92,38 @@ export default function Suppliers() {
     if (!confirm(`'${v.name}' 공급처를 삭제할까요?`)) return
     const { error } = await supabase.from('vendors').delete().eq('id', v.id)
     if (error) return alert('삭제 실패: ' + error.message)
+    load()
+  }
+
+  /** 공급처 병합 — fromVendor의 모든 참조를 toVendor로 옮기고 fromVendor 삭제 */
+  async function mergeVendor(fromVendor: Vendor, toVendor: Vendor) {
+    if (fromVendor.id === toVendor.id) return alert('같은 공급처입니다.')
+    if (!confirm(
+`'${fromVendor.name}'의 모든 데이터를 '${toVendor.name}'로 합칠까요?
+
+- ${fromVendor.name}에 딸린 원가 재료·공급처 계산서 모두 ${toVendor.name}로 옮겨집니다.
+- 옮긴 뒤 '${fromVendor.name}' 공급처는 삭제됩니다.
+- 되돌릴 수 없어요.`
+    )) return
+
+    const updates = [
+      supabase.from('cost_items').update({ supplier_id: toVendor.id }).eq('supplier_id', fromVendor.id),
+      supabase.from('supplier_invoices').update({ supplier_id: toVendor.id }).eq('supplier_id', fromVendor.id),
+    ]
+    const results = await Promise.all(updates)
+    const failed = results.filter(r => r.error)
+    if (failed.length > 0) {
+      alert('일부 업데이트 실패: ' + failed.map(f => f.error?.message).join(', '))
+      return
+    }
+
+    const { error } = await supabase.from('vendors').delete().eq('id', fromVendor.id)
+    if (error) {
+      alert(`데이터는 옮겨졌지만 ${fromVendor.name} 삭제 실패: ${error.message}`)
+    } else {
+      alert(`✅ '${fromVendor.name}' → '${toVendor.name}' 병합 완료`)
+    }
+    setMergingFrom(null)
     load()
   }
 
@@ -162,7 +195,7 @@ export default function Suppliers() {
             <Empty icon="🏭" title="등록된 공급처가 없어요" action={<Button onClick={() => { setEditing(null); setDrawerOpen(true) }}>＋ 등록</Button>} />
           ) : <Empty icon="🔍" title="검색 결과가 없습니다" />
         ) : tab === 'all' ? (
-          <AllTable vendors={filtered} statsMap={statsMap} onEdit={(v) => { setEditing(v); setDrawerOpen(true) }} onDelete={handleDelete} onShowMaterials={setMaterialDrawer} />
+          <AllTable vendors={filtered} statsMap={statsMap} onEdit={(v) => { setEditing(v); setDrawerOpen(true) }} onDelete={handleDelete} onShowMaterials={setMaterialDrawer} onMerge={setMergingFrom} />
         ) : tab === 'contacts' ? (
           <ContactsTable vendors={filtered} />
         ) : tab === 'materials' ? (
@@ -183,6 +216,89 @@ export default function Suppliers() {
         vendor={materialDrawer}
         onClose={() => setMaterialDrawer(null)}
       />
+
+      <MergeVendorModal
+        from={mergingFrom}
+        candidates={vendors.filter(v => v.id !== mergingFrom?.id)}
+        onClose={() => setMergingFrom(null)}
+        onConfirm={(to) => mergingFrom && mergeVendor(mergingFrom, to)}
+      />
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 공급처 병합 모달 — 원본의 데이터를 대상으로 이동 후 원본 삭제
+ * ───────────────────────────────────────────── */
+function MergeVendorModal({ from, candidates, onClose, onConfirm }: {
+  from: Vendor | null
+  candidates: Vendor[]
+  onClose: () => void
+  onConfirm: (to: Vendor) => void
+}) {
+  const [search, setSearch] = useState('')
+  const [selectedId, setSelectedId] = useState<string>('')
+  useEffect(() => { setSelectedId(''); setSearch('') }, [from?.id])
+  if (!from) return null
+
+  const filtered = candidates.filter(v => !search || v.name.toLowerCase().includes(search.toLowerCase()))
+  const target = candidates.find(v => v.id === selectedId)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-100">
+          <h2 className="text-[16px] font-semibold text-zinc-900">🔗 공급처 병합</h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">중복 등록된 공급처를 하나로 합칩니다.</p>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div className="bg-rose-50 border border-rose-200 rounded-lg p-3">
+            <p className="text-[10px] uppercase tracking-wider text-rose-700 font-semibold mb-1">이 공급처 (없어집니다)</p>
+            <p className="text-[14px] font-bold text-zinc-900">{from.name}</p>
+            {from.company_name && <p className="text-[11px] text-zinc-500 mt-0.5">{from.company_name}</p>}
+          </div>
+
+          <div className="text-center text-[18px] text-zinc-400">↓</div>
+
+          <div>
+            <Label>합칠 대상 공급처</Label>
+            <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="이름으로 검색" />
+            <div className="mt-2 border border-zinc-200 rounded-lg max-h-56 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <p className="text-[12px] text-zinc-400 text-center py-6">검색 결과 없음</p>
+              ) : filtered.map(v => (
+                <button
+                  key={v.id}
+                  onClick={() => setSelectedId(v.id)}
+                  className={`w-full text-left px-3 py-2 border-b border-zinc-100 last:border-b-0 transition-colors ${selectedId === v.id ? 'bg-emerald-50 border-emerald-200' : 'hover:bg-zinc-50'}`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div>
+                      <p className="text-[13px] font-medium text-zinc-900">{v.name}</p>
+                      {v.company_name && <p className="text-[11px] text-zinc-500">{v.company_name}</p>}
+                    </div>
+                    {selectedId === v.id && <span className="text-emerald-600 text-[14px]">✓</span>}
+                  </div>
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {target && (
+            <div className="bg-emerald-50 border border-emerald-200 rounded-lg p-3">
+              <p className="text-[10px] uppercase tracking-wider text-emerald-700 font-semibold mb-1">합쳐질 곳 (남아있을 공급처)</p>
+              <p className="text-[14px] font-bold text-zinc-900">{target.name}</p>
+              <p className="text-[11px] text-zinc-600 mt-2">
+                '{from.name}'에 딸린 원가 재료·공급처 계산서가 '{target.name}'로 이동된 뒤 '{from.name}' 공급처는 삭제됩니다.
+              </p>
+            </div>
+          )}
+        </div>
+        <div className="px-5 py-3 border-t border-zinc-100 flex justify-end gap-2">
+          <Button variant="secondary" onClick={onClose}>취소</Button>
+          <Button onClick={() => target && onConfirm(target)} disabled={!target}>합치기</Button>
+        </div>
+      </div>
     </div>
   )
 }
@@ -213,8 +329,8 @@ function TabBtn({ children, active, onClick }: { children: React.ReactNode; acti
 }
 
 /* ───── 탭 1: 전체 정보 ───── */
-function AllTable({ vendors, statsMap, onEdit, onDelete, onShowMaterials }: {
-  vendors: Vendor[]; statsMap: Map<string, SupplierStats>; onEdit: (v: Vendor) => void; onDelete: (v: Vendor) => void; onShowMaterials: (v: Vendor) => void
+function AllTable({ vendors, statsMap, onEdit, onDelete, onShowMaterials, onMerge }: {
+  vendors: Vendor[]; statsMap: Map<string, SupplierStats>; onEdit: (v: Vendor) => void; onDelete: (v: Vendor) => void; onShowMaterials: (v: Vendor) => void; onMerge: (v: Vendor) => void
 }) {
   return (
     <table className="w-full text-[13px]">
@@ -246,6 +362,7 @@ function AllTable({ vendors, statsMap, onEdit, onDelete, onShowMaterials }: {
                 <button onClick={() => onShowMaterials(v)} className="hover:underline">{stats?.materialCount || 0}건</button>
               </td>
               <td className="px-4 py-3 text-right whitespace-nowrap">
+                <Button size="sm" variant="ghost" onClick={() => onMerge(v)} title="다른 공급처와 합치기" className="text-violet-600 hover:bg-violet-50 hover:text-violet-700">🔗 합치기</Button>
                 <Button size="sm" variant="ghost" onClick={() => onEdit(v)}>수정</Button>
                 <Button size="sm" variant="ghost" onClick={() => onDelete(v)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
               </td>
