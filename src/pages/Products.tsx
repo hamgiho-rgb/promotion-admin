@@ -204,6 +204,7 @@ export default function Products() {
  editing={editing}
  vendors={vendors}
  onSaved={() => { setDrawerOpen(false); load() }}
+ onVendorsReload={load}
  />
  </div>
  )
@@ -219,8 +220,8 @@ function StatCard({ label, value, hint }: { label: string; value: string; hint?:
  )
 }
 
-function ProductDrawer({ open, onClose, editing, vendors, onSaved }: {
- open: boolean; onClose: () => void; editing: Product | null; vendors: Vendor[]; onSaved: () => void
+function ProductDrawer({ open, onClose, editing, vendors, onSaved, onVendorsReload }: {
+ open: boolean; onClose: () => void; editing: Product | null; vendors: Vendor[]; onSaved: () => void; onVendorsReload: () => void
 }) {
  const [form, setForm] = useState<Partial<Product>>({})
  const [saving, setSaving] = useState(false)
@@ -291,7 +292,7 @@ function ProductDrawer({ open, onClose, editing, vendors, onSaved }: {
    value={form.vendor_id || null}
    customers={vendors}
    onChange={(id) => update('vendor_id', id || '')}
-   onCustomersChanged={load}
+   onCustomersChanged={onVendorsReload}
  />
  </div>
 
