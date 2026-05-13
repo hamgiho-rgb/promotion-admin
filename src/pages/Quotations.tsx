@@ -29,6 +29,8 @@ export default function QuotationsPage() {
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Quotation | null>(null)
  const [statusFilter, setStatusFilter] = useState<string>('all')
+ const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+ const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
  const bulk = useBulkSelect()
 
  async function load() {
@@ -70,7 +72,12 @@ export default function QuotationsPage() {
  load()
  }
 
- const filtered = list.filter(q => statusFilter === 'all' || q.status === statusFilter)
+ const allMonths = Array.from(new Set(list.map(q => q.issue_date?.slice(0, 7)).filter(Boolean))).sort((a, b) => (b! > a! ? 1 : -1)) as string[]
+ const filtered = list.filter(q => {
+   if (statusFilter !== 'all' && q.status !== statusFilter) return false
+   if (monthFilter !== 'all' && !q.issue_date?.startsWith(monthFilter)) return false
+   return true
+ })
 
  // 통계
  const totalAmount = filtered.reduce((s, q) => s + Number(q.total || 0), 0)
@@ -128,6 +135,12 @@ export default function QuotationsPage() {
    <span className="text-[12px] text-zinc-600 select-none">전체 선택</span>
  </label>
  <div className="w-40">
+ <Select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+ <option value="all">전체 기간</option>
+ {allMonths.map(m => <option key={m} value={m}>{m}</option>)}
+ </Select>
+ </div>
+ <div className="w-40">
  <Select value={statusFilter} onChange={e => setStatusFilter(e.target.value)}>
  <option value="all">모든 상태</option>
  <option value="draft">작성중</option>
@@ -145,62 +158,86 @@ export default function QuotationsPage() {
  ) : filtered.length === 0 ? (
  <Empty icon="📑" title="견적서가 없습니다" description="＋ 새 견적서 버튼으로 시작하세요." />
  ) : (
- <table className="w-full text-[13px]">
- <thead>
- <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
- <th className="pl-4 pr-2 py-2.5 w-10">
-   <Checkbox
-     checked={filtered.length > 0 && filtered.every(q => bulk.has(q.id))}
-     indeterminate={filtered.some(q => bulk.has(q.id))}
-     onChange={() => bulk.toggleAll(filtered.map(q => q.id))}
-     ariaLabel="전체 선택"
-   />
- </th>
- <th className="px-4 py-2.5">발행일</th>
- <th className="px-4 py-2.5">거래처</th>
- <th className="px-4 py-2.5">상태</th>
- <th className="px-4 py-2.5 text-right">견적 금액</th>
- <th className="px-4 py-2.5 text-right">계약금</th>
- <th className="px-4 py-2.5 text-right">관리</th>
- </tr>
- </thead>
- <tbody>
- {filtered.map(q => (
- <tr key={q.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(q.id) ? 'bg-zinc-50' : ''}`}>
- <td className="pl-4 pr-2 py-2.5">
-   <Checkbox checked={bulk.has(q.id)} onChange={() => bulk.toggle(q.id)} ariaLabel={`${q.issue_date} 선택`} />
- </td>
- <td className="px-4 py-2.5 font-medium tabular-nums">
- <button onClick={() => { setEditing(q); setDrawerOpen(true) }} className="hover:underline">{q.issue_date}</button>
- </td>
- <td className="px-4 py-2.5"><Badge color="green">{vendorName(q.vendor_id)}</Badge></td>
- <td className="px-4 py-2.5">
- <Select value={q.status} onChange={e => changeStatus(q, e.target.value as QuotationStatus)} className="text-[11px] py-0.5 w-28">
- <option value="draft">작성중</option>
- <option value="sent">발송</option>
- <option value="accepted">수락</option>
- <option value="rejected">거절</option>
- <option value="converted">계산서 발행</option>
- </Select>
- </td>
- <td className="px-4 py-2.5 text-right font-semibold tabular-nums">₩{Number(q.total).toLocaleString()}</td>
- <td className="px-4 py-2.5 text-right tabular-nums">
- {Number(q.deposit_rate) > 0 ? (
  <div>
- <div className="font-medium">₩{Number(q.deposit_amount).toLocaleString()}</div>
- <div className="text-[10px] text-zinc-500">{q.deposit_rate}% {q.deposit_received ? '✓ 수령' : '미수령'}</div>
+ {(() => {
+   // 월별 그룹화
+   const grouped = filtered.reduce<Record<string, typeof filtered>>((acc, q) => {
+     const k = q.issue_date?.slice(0, 7) || '미분류'
+     if (!acc[k]) acc[k] = []
+     acc[k].push(q)
+     return acc
+   }, {})
+   const months = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
+   return months.map(month => {
+     const monthList = grouped[month]
+     const monthTotal = monthList.reduce((s, q) => s + Number(q.total || 0), 0)
+     return (
+       <div key={month}>
+         <div className="px-4 py-2.5 bg-zinc-50 border-y border-zinc-100 flex items-center justify-between">
+           <div className="flex items-center gap-2">
+             <span className="text-[13px] font-bold text-zinc-900 tabular-nums">{month}</span>
+             <span className="text-[11px] text-zinc-500">· {monthList.length}건</span>
+           </div>
+           <span className="text-[12px] font-semibold tabular-nums text-zinc-700">
+             ₩{monthTotal.toLocaleString()}
+           </span>
+         </div>
+         <table className="w-full text-[13px]">
+           <thead>
+             <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
+               <th className="pl-4 pr-2 py-2 w-10"></th>
+               <th className="px-4 py-2 w-24">발행일</th>
+               <th className="px-4 py-2">거래처</th>
+               <th className="px-4 py-2">상태</th>
+               <th className="px-4 py-2 text-right">견적 금액</th>
+               <th className="px-4 py-2 text-right">계약금</th>
+               <th className="px-4 py-2 text-right">관리</th>
+             </tr>
+           </thead>
+           <tbody>
+             {monthList.map(q => (
+               <tr key={q.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(q.id) ? 'bg-zinc-50' : ''}`}>
+                 <td className="pl-4 pr-2 py-2.5">
+                   <Checkbox checked={bulk.has(q.id)} onChange={() => bulk.toggle(q.id)} ariaLabel={`${q.issue_date} 선택`} />
+                 </td>
+                 <td className="px-4 py-2.5 font-medium tabular-nums">
+                   <button onClick={() => { setEditing(q); setDrawerOpen(true) }} className="hover:underline">
+                     {q.issue_date.slice(5)}
+                   </button>
+                 </td>
+                 <td className="px-4 py-2.5"><Badge color="green">{vendorName(q.vendor_id)}</Badge></td>
+                 <td className="px-4 py-2.5">
+                   <Select value={q.status} onChange={e => changeStatus(q, e.target.value as QuotationStatus)} className="text-[11px] py-0.5 w-28">
+                     <option value="draft">작성중</option>
+                     <option value="sent">발송</option>
+                     <option value="accepted">수락</option>
+                     <option value="rejected">거절</option>
+                     <option value="converted">계산서 발행</option>
+                   </Select>
+                 </td>
+                 <td className="px-4 py-2.5 text-right font-semibold tabular-nums">₩{Number(q.total).toLocaleString()}</td>
+                 <td className="px-4 py-2.5 text-right tabular-nums">
+                   {Number(q.deposit_rate) > 0 ? (
+                     <div>
+                       <div className="font-medium">₩{Number(q.deposit_amount).toLocaleString()}</div>
+                       <div className="text-[10px] text-zinc-500">{q.deposit_rate}% {q.deposit_received ? '✓ 수령' : '미수령'}</div>
+                     </div>
+                   ) : <span className="text-zinc-300">—</span>}
+                 </td>
+                 <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                   <Button size="sm" variant="ghost" onClick={() => navigate(`/quotations/${q.id}/print`)} title="새 탭에서 인쇄">🖨️ 출력</Button>
+                   <Button size="sm" variant="ghost" onClick={() => { setEditing(q); setDrawerOpen(true) }}>수정</Button>
+                   <Button size="sm" variant="ghost" onClick={() => handleDelete(q)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
+                 </td>
+               </tr>
+             ))}
+           </tbody>
+         </table>
+       </div>
+     )
+   })
+ })()}
  </div>
- ) : <span className="text-zinc-300">—</span>}
- </td>
- <td className="px-4 py-2.5 text-right whitespace-nowrap">
- <Button size="sm" variant="ghost" onClick={() => navigate(`/quotations/${q.id}/print`)} title="새 탭에서 인쇄">🖨️ 출력</Button>
- <Button size="sm" variant="ghost" onClick={() => { setEditing(q); setDrawerOpen(true) }}>수정</Button>
- <Button size="sm" variant="ghost" onClick={() => handleDelete(q)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
- </td>
- </tr>
- ))}
- </tbody>
- </table>
  )}
  </div>
  )}

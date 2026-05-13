@@ -23,6 +23,8 @@ export default function InvoicesPage() {
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Invoice | null>(null)
  const [vendorFilter, setVendorFilter] = useState<string>('all')
+ const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+ const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
  const bulk = useBulkSelect()
 
  async function load() {
@@ -112,7 +114,14 @@ export default function InvoicesPage() {
    exportInvoiceReceiptsMulti(payload, fname)
  }
 
- const filtered = list.filter(i => vendorFilter === 'all' || i.vendor_id === vendorFilter)
+ // 데이터에 있는 월 목록
+ const allMonths = Array.from(new Set(list.map(i => i.issue_date.slice(0, 7)))).sort((a, b) => b.localeCompare(a))
+
+ const filtered = list.filter(i => {
+   if (vendorFilter !== 'all' && i.vendor_id !== vendorFilter) return false
+   if (monthFilter !== 'all' && !i.issue_date.startsWith(monthFilter)) return false
+   return true
+ })
 
  // 월별 그룹
  const groupedByMonth = filtered.reduce<Record<string, Invoice[]>>((acc, inv) => {
@@ -176,6 +185,12 @@ export default function InvoicesPage() {
    />
    <span className="text-[12px] text-zinc-600 select-none">전체 선택</span>
  </label>
+ <div className="w-40">
+ <Select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+ <option value="all">전체 기간</option>
+ {allMonths.map(m => <option key={m} value={m}>{m}</option>)}
+ </Select>
+ </div>
  <div className="w-56">
  <Select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}>
  <option value="all">모든 거래처</option>

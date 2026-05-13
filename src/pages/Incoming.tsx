@@ -19,6 +19,8 @@ export default function IncomingPage() {
  const [statsMap, setStatsMap] = useState<Map<string, IncomingStats>>(new Map())
  const [loading, setLoading] = useState(true)
  const [vendorFilter, setVendorFilter] = useState<string>('all')
+ const thisYearMonth = `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}`
+ const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Incoming | null>(null)
  const bulk = useBulkSelect()
@@ -86,7 +88,12 @@ export default function IncomingPage() {
  return vendors.find(v => v.id === id)?.name || '—'
  }
 
- const filtered = list.filter(i => vendorFilter === 'all' || i.vendor_id === vendorFilter)
+ const allMonths = Array.from(new Set(list.map(i => i.period).filter(Boolean))).sort((a, b) => (b! > a! ? 1 : -1)) as string[]
+ const filtered = list.filter(i => {
+   if (vendorFilter !== 'all' && i.vendor_id !== vendorFilter) return false
+   if (monthFilter !== 'all' && i.period !== monthFilter) return false
+   return true
+ })
  const totalQty = filtered.reduce((s, i) => s + (statsMap.get(i.id)?.totalQuantity || 0), 0)
  const totalCartons = filtered.reduce((s, i) => s + (statsMap.get(i.id)?.cartons || 0), 0)
 
@@ -160,6 +167,12 @@ export default function IncomingPage() {
    />
    <span className="text-[12px] text-zinc-600 select-none">전체 선택</span>
  </label>
+ <div className="w-40">
+ <Select value={monthFilter} onChange={e => setMonthFilter(e.target.value)}>
+ <option value="all">전체 기간</option>
+ {allMonths.map(m => <option key={m} value={m}>{m}</option>)}
+ </Select>
+ </div>
  <div className="w-56">
  <Select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}>
  <option value="all">모든 거래처</option>
@@ -176,55 +189,76 @@ export default function IncomingPage() {
  ) : filtered.length === 0 ? (
  <Empty icon="📦" title="등록된 입고내역서가 없어요" description="＋ 새 입고내역서 버튼으로 시작하세요." />
  ) : (
- <table className="w-full text-[13px]">
- <thead>
- <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
- <th className="pl-4 pr-2 py-3 w-10">
-   <Checkbox
-     checked={filtered.length > 0 && filtered.every(i => bulk.has(i.id))}
-     indeterminate={filtered.some(i => bulk.has(i.id))}
-     onChange={() => bulk.toggleAll(filtered.map(i => i.id))}
-     ariaLabel="전체 선택"
-   />
- </th>
- <th className="px-4 py-3">기간</th>
- <th className="px-4 py-3">거래처</th>
- <th className="px-4 py-3 text-right">총 수량</th>
- <th className="px-4 py-3 text-right">박스</th>
- <th className="px-4 py-3 text-right">상품</th>
- <th className="px-4 py-3">브랜드</th>
- <th className="px-4 py-3 text-right">관리</th>
- </tr>
- </thead>
- <tbody>
- {filtered.map(i => {
- const stats = statsMap.get(i.id)
- return (
- <tr key={i.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(i.id) ? 'bg-zinc-50' : ''}`}>
- <td className="pl-4 pr-2 py-3">
-   <Checkbox checked={bulk.has(i.id)} onChange={() => bulk.toggle(i.id)} ariaLabel={`${i.period || '입고'} 선택`} />
- </td>
- <td className="px-4 py-3 font-medium text-zinc-900">
- <button onClick={() => { setEditing(i); setDrawerOpen(true) }} className="hover:underline">
- {i.period || '—'}
- </button>
- </td>
- <td className="px-4 py-3"><Badge color="green">{vendorName(i.vendor_id)}</Badge></td>
- <td className="px-4 py-3 text-right font-semibold tabular-nums">
- {stats ? `${stats.totalQuantity.toLocaleString()}장` : '—'}
- </td>
- <td className="px-4 py-3 text-right tabular-nums text-zinc-600">{stats?.cartons || 0}</td>
- <td className="px-4 py-3 text-right tabular-nums text-zinc-600">{stats?.productCount || 0}</td>
- <td className="px-4 py-3 text-zinc-600">{i.brand || '—'}</td>
- <td className="px-4 py-3 text-right">
- <Button size="sm" variant="ghost" onClick={() => { setEditing(i); setDrawerOpen(true) }}>수정</Button>
- <Button size="sm" variant="ghost" onClick={() => handleDelete(i)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
- </td>
- </tr>
- )
- })}
- </tbody>
- </table>
+ <div>
+ {(() => {
+   // 월별 그룹화
+   const grouped = filtered.reduce<Record<string, Incoming[]>>((acc, inc) => {
+     const k = inc.period || '미분류'
+     if (!acc[k]) acc[k] = []
+     acc[k].push(inc)
+     return acc
+   }, {})
+   const months = Object.keys(grouped).sort((a, b) => b.localeCompare(a))
+   return months.map(month => {
+     const monthList = grouped[month]
+     const monthQty = monthList.reduce((s, i) => s + (statsMap.get(i.id)?.totalQuantity || 0), 0)
+     const monthCartons = monthList.reduce((s, i) => s + (statsMap.get(i.id)?.cartons || 0), 0)
+     return (
+       <div key={month}>
+         <div className="px-4 py-2.5 bg-zinc-50 border-y border-zinc-100 flex items-center justify-between">
+           <div className="flex items-center gap-2">
+             <span className="text-[13px] font-bold text-zinc-900 tabular-nums">{month}</span>
+             <span className="text-[11px] text-zinc-500">· {monthList.length}건</span>
+           </div>
+           <span className="text-[12px] font-semibold tabular-nums text-zinc-700">
+             {monthQty.toLocaleString()}장 · {monthCartons} 박스
+           </span>
+         </div>
+         <table className="w-full text-[13px]">
+           <thead>
+             <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
+               <th className="pl-4 pr-2 py-2.5 w-10"></th>
+               <th className="px-4 py-2.5">거래처</th>
+               <th className="px-4 py-2.5 text-right">총 수량</th>
+               <th className="px-4 py-2.5 text-right">박스</th>
+               <th className="px-4 py-2.5 text-right">상품</th>
+               <th className="px-4 py-2.5">브랜드</th>
+               <th className="px-4 py-2.5 text-right">관리</th>
+             </tr>
+           </thead>
+           <tbody>
+             {monthList.map(i => {
+               const stats = statsMap.get(i.id)
+               return (
+                 <tr key={i.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(i.id) ? 'bg-zinc-50' : ''}`}>
+                   <td className="pl-4 pr-2 py-2.5">
+                     <Checkbox checked={bulk.has(i.id)} onChange={() => bulk.toggle(i.id)} ariaLabel={`${i.period || '입고'} 선택`} />
+                   </td>
+                   <td className="px-4 py-2.5 font-medium text-zinc-900">
+                     <button onClick={() => { setEditing(i); setDrawerOpen(true) }} className="hover:underline">
+                       <Badge color="green">{vendorName(i.vendor_id)}</Badge>
+                     </button>
+                   </td>
+                   <td className="px-4 py-2.5 text-right font-semibold tabular-nums">
+                     {stats ? `${stats.totalQuantity.toLocaleString()}장` : '—'}
+                   </td>
+                   <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{stats?.cartons || 0}</td>
+                   <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{stats?.productCount || 0}</td>
+                   <td className="px-4 py-2.5 text-zinc-600">{i.brand || '—'}</td>
+                   <td className="px-4 py-2.5 text-right">
+                     <Button size="sm" variant="ghost" onClick={() => { setEditing(i); setDrawerOpen(true) }}>수정</Button>
+                     <Button size="sm" variant="ghost" onClick={() => handleDelete(i)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
+                   </td>
+                 </tr>
+               )
+             })}
+           </tbody>
+         </table>
+       </div>
+     )
+   })
+ })()}
+ </div>
  )}
  </div>
  )}
