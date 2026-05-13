@@ -15,7 +15,7 @@ const ALIASES: Record<string, string[]> = {
   color: ['컬러', '색상', '컬러명', 'color', 'colour'],
   selling_price: ['판매가', '납품가', '단가', 'price', 'sellingprice', 'unitprice'],
   // common
-  vendor_name: ['거래처명', '브랜드명', '브랜드', '거래처', 'vendor', 'brand', 'customer', 'company'],
+  vendor_name: ['거래처명', '거래처', '회사', '회사명', '브랜드명', '브랜드', 'vendor', 'customer', 'company', 'brand'],
   notes: ['메모', '비고', 'memo', 'notes', 'remark', 'remarks'],
   // customers extra
   company_name: ['회사명', '모회사', 'companyname', 'parent company'],
