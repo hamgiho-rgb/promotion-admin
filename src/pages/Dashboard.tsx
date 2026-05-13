@@ -99,9 +99,24 @@ export default function Dashboard() {
 
   return (
     <div>
-      <div className="mb-6">
-        <p className="text-[13px] text-zinc-500 mb-1">{dateStr}</p>
-        <h1 className="text-[22px] sm:text-[26px] font-bold tracking-tight text-zinc-900">대시보드</h1>
+      {/* 헤더 — 그라데이션 배경 */}
+      <div className="mb-6 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-zinc-900 via-zinc-800 to-zinc-900 text-white rounded-b-3xl">
+        <p className="text-[12px] text-zinc-400 mb-1">{dateStr}</p>
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">대시보드</h1>
+            <p className="text-[12px] text-zinc-400 mt-1">한눈에 보는 이번 달 매출과 입고 현황</p>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-400 mb-1">이번 달 매출</div>
+            <div className="text-[26px] sm:text-[32px] font-bold tabular-nums">₩{thisMonthData.revenue.toLocaleString()}</div>
+            {lastMonthData.revenue > 0 && (
+              <div className={`text-[11px] mt-0.5 ${monthDelta >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {monthDelta >= 0 ? '↑' : '↓'} {Math.abs(monthDelta).toFixed(1)}% (지난 달 대비)
+              </div>
+            )}
+          </div>
+        </div>
       </div>
 
       {/* 핵심 지표 카드 - 클릭 가능 */}
@@ -112,24 +127,28 @@ export default function Dashboard() {
           hint={`${thisMonth} · 계산서 ${thisMonthData.invoiceCount}건`}
           delta={lastMonthData.revenue > 0 ? { value: monthDelta.toFixed(1) + '%', positive: monthDelta >= 0 } : null}
           onClick={() => setSummary('this_month_revenue')}
+          accent="blue"
         />
         <StatCard
           label="지난 달 매출"
           value={`₩${lastMonthData.revenue.toLocaleString()}`}
           hint={`${lastMonth} · 계산서 ${lastMonthData.invoiceCount}건`}
           onClick={() => setSummary('last_month_revenue')}
+          accent="violet"
         />
         <StatCard
           label={`${today.getFullYear()}년 누적`}
           value={`₩${yearRevenue.toLocaleString()}`}
           hint="올해 매출 합계"
           onClick={() => setSummary('ytd_revenue')}
+          accent="green"
         />
         <StatCard
           label="이번 달 입고"
           value={`${thisMonthData.incomingQty.toLocaleString()}장`}
           hint={`${thisMonthData.incomingCount}건의 입고내역서`}
           onClick={() => setSummary('this_month_incoming')}
+          accent="amber"
         />
       </div>
 
@@ -146,16 +165,33 @@ export default function Dashboard() {
           <div className="p-16 text-center text-[12px] text-zinc-400">불러오는 중...</div>
         ) : (
           <div className="p-5">
-            <div className="flex items-end justify-between gap-1.5 h-32 mb-4">
+            <div className="flex items-end justify-between gap-1.5 h-40 mb-4">
               {[...months].reverse().map(m => {
                 const heightPct = maxRevenue > 0 ? (m.revenue / maxRevenue) * 100 : 0
                 const isThisMonth = m.month === thisMonth
                 return (
-                  <div key={m.month} className="flex-1 flex flex-col items-center">
-                    <div className="w-full flex items-end justify-center h-28">
-                      <div className={`w-full rounded-t-md ${isThisMonth ? 'bg-zinc-900' : m.revenue > 0 ? 'bg-zinc-300' : 'bg-zinc-100'}`} style={{ height: `${Math.max(heightPct, m.revenue > 0 ? 4 : 0)}%` }} />
+                  <div key={m.month} className="flex-1 flex flex-col items-center group relative">
+                    {/* 툴팁 */}
+                    {m.revenue > 0 && (
+                      <div className="absolute -top-12 px-2 py-1 bg-zinc-900 text-white text-[10px] rounded shadow-lg opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none whitespace-nowrap z-10">
+                        ₩{m.revenue.toLocaleString()}<br />{m.invoiceCount}건
+                      </div>
+                    )}
+                    <div className="w-full flex items-end justify-center h-32">
+                      <div
+                        className={`w-full rounded-t-md transition-all ${
+                          isThisMonth
+                            ? 'bg-gradient-to-t from-zinc-900 to-zinc-700'
+                            : m.revenue > 0
+                            ? 'bg-gradient-to-t from-blue-400 to-blue-300 group-hover:from-blue-500 group-hover:to-blue-400'
+                            : 'bg-zinc-100'
+                        }`}
+                        style={{ height: `${Math.max(heightPct, m.revenue > 0 ? 4 : 0)}%` }}
+                      />
                     </div>
-                    <span className={`text-[10px] mt-1.5 ${isThisMonth ? 'font-bold text-zinc-900' : 'text-zinc-500'}`}>{m.month.slice(5)}</span>
+                    <span className={`text-[10px] mt-1.5 tabular-nums ${isThisMonth ? 'font-bold text-zinc-900' : 'text-zinc-500'}`}>
+                      {m.month.slice(5)}
+                    </span>
                   </div>
                 )
               })}
@@ -183,11 +219,12 @@ export default function Dashboard() {
         )}
       </div>
 
+      <h2 className="text-[13px] font-semibold text-zinc-700 mb-2">바로 가기</h2>
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <QuickAction onClick={() => navigate('/quotations')} icon="📑" label="견적서 작성" desc="새 견적 + 계약금" />
-        <QuickAction onClick={() => navigate('/incoming')} icon="📦" label="입고 등록" desc="새 입고내역서" />
-        <QuickAction onClick={() => navigate('/invoices')} icon="🧾" label="계산서 발행" desc="매출 청구" />
-        <QuickAction onClick={() => navigate('/margin')} icon="📊" label="마진 분석" desc="상품별 마진" />
+        <QuickAction onClick={() => navigate('/quotations')} icon="📑" label="견적서 작성" desc="새 견적 + 계약금" tint="blue" />
+        <QuickAction onClick={() => navigate('/incoming')} icon="📦" label="입고 등록" desc="새 입고내역서" tint="amber" />
+        <QuickAction onClick={() => navigate('/invoices')} icon="🧾" label="계산서 발행" desc="매출 청구" tint="green" />
+        <QuickAction onClick={() => navigate('/payments')} icon="🏭" label="공급처 정산" desc="공장 결제 자동 계산" tint="violet" />
       </div>
 
       <SummaryDrawer type={summary} invoices={invoices} incomings={incomings} incomingItemsMap={incomingItemsMap} vendorMap={vendorMap} onClose={() => setSummary(null)} />
@@ -195,28 +232,44 @@ export default function Dashboard() {
   )
 }
 
-function StatCard({ label, value, hint, delta, onClick }: { label: string; value: string; hint?: string; delta?: { value: string; positive: boolean } | null; onClick?: () => void }) {
+function StatCard({ label, value, hint, delta, onClick, accent }: { label: string; value: string; hint?: string; delta?: { value: string; positive: boolean } | null; onClick?: () => void; accent?: 'blue'|'green'|'amber'|'violet' }) {
+  const palettes = {
+    blue:   { bg: 'from-blue-50 to-white border-blue-100',       hover: 'hover:border-blue-300 hover:from-blue-100' },
+    green:  { bg: 'from-emerald-50 to-white border-emerald-100', hover: 'hover:border-emerald-300 hover:from-emerald-100' },
+    amber:  { bg: 'from-amber-50 to-white border-amber-100',     hover: 'hover:border-amber-300 hover:from-amber-100' },
+    violet: { bg: 'from-violet-50 to-white border-violet-100',   hover: 'hover:border-violet-300 hover:from-violet-100' },
+  }
+  const p = accent ? palettes[accent] : null
+  const baseClass = p
+    ? `bg-gradient-to-br ${p.bg} ${onClick ? `cursor-pointer transition-colors ${p.hover}` : ''}`
+    : `bg-white border-zinc-200 ${onClick ? 'hover:border-zinc-400 hover:bg-zinc-50/50 cursor-pointer transition-colors' : ''}`
   const inner = (
-    <div className={`bg-white border border-zinc-200 rounded-2xl p-4 text-left ${onClick ? 'hover:border-zinc-400 hover:bg-zinc-50/50 cursor-pointer transition-colors' : ''}`}>
+    <div className={`border rounded-2xl p-4 text-left ${baseClass}`}>
       <div className="flex items-center justify-between mb-2">
         <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
         {delta && (
-          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${delta.positive ? 'bg-emerald-50 text-emerald-700' : 'bg-rose-50 text-rose-700'}`}>
+          <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded ${delta.positive ? 'bg-emerald-100 text-emerald-700' : 'bg-rose-100 text-rose-700'}`}>
             {delta.positive ? '↑' : '↓'} {delta.value}
           </span>
         )}
       </div>
-      <p className="text-[20px] font-bold text-zinc-900 tabular-nums">{value}</p>
-      {hint && <p className="text-[11px] text-zinc-400 mt-0.5 flex items-center justify-between"><span>{hint}</span>{onClick && <span>→</span>}</p>}
+      <p className="text-[22px] font-bold text-zinc-900 tabular-nums">{value}</p>
+      {hint && <p className="text-[11px] text-zinc-500 mt-1 flex items-center justify-between"><span>{hint}</span>{onClick && <span className="text-zinc-400">→</span>}</p>}
     </div>
   )
   return onClick ? <button onClick={onClick} className="block w-full">{inner}</button> : inner
 }
 
-function QuickAction({ icon, label, desc, onClick }: { icon: string; label: string; desc: string; onClick: () => void }) {
+function QuickAction({ icon, label, desc, onClick, tint }: { icon: string; label: string; desc: string; onClick: () => void; tint?: 'blue'|'green'|'amber'|'violet' }) {
+  const tints = {
+    blue: 'hover:border-blue-400 hover:bg-blue-50/60',
+    green: 'hover:border-emerald-400 hover:bg-emerald-50/60',
+    amber: 'hover:border-amber-400 hover:bg-amber-50/60',
+    violet: 'hover:border-violet-400 hover:bg-violet-50/60',
+  }
   return (
-    <button onClick={onClick} className="bg-white border border-zinc-200 rounded-2xl p-4 text-left hover:border-zinc-400 transition-colors">
-      <div className="text-xl mb-2">{icon}</div>
+    <button onClick={onClick} className={`bg-white border border-zinc-200 rounded-2xl p-4 text-left transition-colors ${tint ? tints[tint] : 'hover:border-zinc-400'}`}>
+      <div className="text-2xl mb-2">{icon}</div>
       <p className="text-[13px] font-semibold text-zinc-900">{label}</p>
       <p className="text-[11px] text-zinc-500 mt-0.5">{desc}</p>
     </button>

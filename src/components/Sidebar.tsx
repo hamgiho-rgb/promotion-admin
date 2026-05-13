@@ -1,5 +1,19 @@
-import { NavLink } from 'react-router-dom'
+import { NavLink, useLocation } from 'react-router-dom'
+import { useState, useEffect } from 'react'
 import { lock, getCurrentUser } from '@/components/PinGate'
+
+const SIDEBAR_COLLAPSE_KEY = 'sidebar_collapsed_sections'
+
+function readCollapsed(): Set<string> {
+  try {
+    const raw = localStorage.getItem(SIDEBAR_COLLAPSE_KEY)
+    if (!raw) return new Set()
+    return new Set(JSON.parse(raw))
+  } catch { return new Set() }
+}
+function saveCollapsed(s: Set<string>) {
+  try { localStorage.setItem(SIDEBAR_COLLAPSE_KEY, JSON.stringify(Array.from(s))) } catch {}
+}
 
 const Icon = ({ d }: { d: string }) => (
   <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
@@ -52,6 +66,22 @@ const menu = [
 
 export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
   const me = getCurrentUser()
+  const location = useLocation()
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => readCollapsed())
+
+  function toggleSection(name: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(name)) next.delete(name); else next.add(name)
+      saveCollapsed(next)
+      return next
+    })
+  }
+
+  // 현재 경로가 어떤 섹션 안에 있는지 (그 섹션은 자동으로 펼침 유지)
+  const activeSections = new Set(
+    menu.filter(g => g.items.some(it => it.to === location.pathname || (it.to !== '/' && location.pathname.startsWith(it.to)))).map(g => g.section)
+  )
   return (
     <aside className="w-[232px] h-full bg-white border-r border-zinc-200 flex flex-col">
       <div className="px-5 pt-6 pb-5">
@@ -69,31 +99,45 @@ export default function Sidebar({ onItemClick }: { onItemClick?: () => void }) {
       </div>
 
       <nav className="flex-1 px-3 overflow-y-auto pb-4">
-        {menu.map(group => (
-          <div key={group.section} className="mb-1">
-            <p className="px-3 pt-3 pb-1.5 text-[10px] font-semibold uppercase tracking-wider text-zinc-400">{group.section}</p>
-            <div className="space-y-0.5">
-              {group.items.map(item => (
-                <NavLink
-                  key={item.to}
-                  to={item.to}
-                  end={item.to === '/'}
-                  onClick={onItemClick}
-                  className={({ isActive }) =>
-                    `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${
-                      isActive
-                        ? 'bg-zinc-900 text-white'
-                        : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 active:bg-zinc-200'
-                    }`
-                  }
-                >
-                  <Icon d={item.icon} />
-                  <span>{item.label}</span>
-                </NavLink>
-              ))}
+        {menu.map(group => {
+          const isCollapsed = collapsed.has(group.section) && !activeSections.has(group.section)
+          const hasOnlyOne = group.items.length === 1
+          return (
+            <div key={group.section} className="mb-1">
+              <button
+                onClick={() => toggleSection(group.section)}
+                className="w-full px-3 pt-3 pb-1.5 flex items-center justify-between text-[10px] font-semibold uppercase tracking-wider text-zinc-400 hover:text-zinc-700 transition-colors"
+              >
+                <span>{group.section}</span>
+                {!hasOnlyOne && (
+                  <span className="text-zinc-300 text-[10px]">{isCollapsed ? '▶' : '▼'}</span>
+                )}
+              </button>
+              {!isCollapsed && (
+                <div className="space-y-0.5">
+                  {group.items.map(item => (
+                    <NavLink
+                      key={item.to}
+                      to={item.to}
+                      end={item.to === '/'}
+                      onClick={onItemClick}
+                      className={({ isActive }) =>
+                        `flex items-center gap-2.5 px-3 py-2.5 rounded-lg text-[13px] font-medium transition-colors ${
+                          isActive
+                            ? 'bg-zinc-900 text-white'
+                            : 'text-zinc-600 hover:bg-zinc-100 hover:text-zinc-900 active:bg-zinc-200'
+                        }`
+                      }
+                    >
+                      <Icon d={item.icon} />
+                      <span>{item.label}</span>
+                    </NavLink>
+                  ))}
+                </div>
+              )}
             </div>
-          </div>
-        ))}
+          )
+        })}
       </nav>
 
       <div className="px-3 py-3 border-t border-zinc-100 space-y-2">
