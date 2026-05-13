@@ -49,7 +49,11 @@ export default function Products() {
  if (vendorFilter !== 'all' && p.vendor_id !== vendorFilter) return false
  if (search) {
  const s = search.toLowerCase()
- if (!p.code.toLowerCase().includes(s) && !p.name.toLowerCase().includes(s)) return false
+ const nameKo = (p.name || '').toLowerCase()
+ const nameEn = (p.name_en || '').toLowerCase()
+ const code = (p.code || '').toLowerCase()
+ const color = (p.color || '').toLowerCase()
+ if (!code.includes(s) && !nameKo.includes(s) && !nameEn.includes(s) && !color.includes(s)) return false
  }
  return true
  })
@@ -161,7 +165,10 @@ export default function Products() {
  <button onClick={() => navigate(`/products/${p.id}`)} className="hover:underline text-blue-700">{p.code}</button>
  </td>
  <td className="px-4 py-2.5 font-medium text-zinc-900">
- <button onClick={() => navigate(`/products/${p.id}`)} className="hover:underline text-left">{p.name}</button>
+ <button onClick={() => navigate(`/products/${p.id}`)} className="hover:underline text-left">
+   <div>{p.name}</div>
+   {p.name_en && <div className="text-[10px] text-zinc-500 font-normal mt-0.5">{p.name_en}</div>}
+ </button>
  </td>
  <td className="px-4 py-2.5 text-zinc-600">{p.color || '—'}</td>
  <td className="px-4 py-2.5 text-right tabular-nums">
@@ -250,6 +257,7 @@ function ProductDrawer({ open, onClose, editing, vendors, onSaved, onVendorsRelo
  const payload = {
  code: form.code.trim(),
  name: form.name.trim(),
+ name_en: form.name_en?.trim() || null,
  color: form.color?.trim() || null,
  vendor_id: form.vendor_id,
  selling_price: Number(form.selling_price) || 0,
@@ -308,8 +316,14 @@ function ProductDrawer({ open, onClose, editing, vendors, onSaved, onVendorsRelo
  </div>
 
  <div>
- <Label required>품목명</Label>
+ <Label required>품목명 (한글)</Label>
  <Input value={form.name || ''} onChange={e => update('name', e.target.value)} />
+ </div>
+
+ <div>
+ <Label>영문 품목명 (선택)</Label>
+ <Input value={form.name_en || ''} onChange={e => update('name_en', e.target.value)} />
+ <p className="text-[11px] text-zinc-500 mt-1">거래처에서 영문으로 보내는 경우 같이 등록. 검색 시 둘 다 매칭됩니다.</p>
  </div>
 
  <div>

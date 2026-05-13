@@ -63,12 +63,13 @@ const SPECS: Record<FlatEntity, EntitySpec> = {
     columns: [
       { key: '거래처명', label: '거래처명 (브랜드)', required: true, hint: '없으면 자동 생성됨' },
       { key: '품번', label: '품번', required: true },
-      { key: '품목명', label: '품목명', required: true },
+      { key: '품목명', label: '품목명 (한글)', required: true },
+      { key: '영문명', label: '영문 품목명', hint: '선택. 거래처에서 영문으로 보내는 경우' },
       { key: '컬러', label: '컬러' },
       { key: '판매가', label: '판매가', hint: '숫자만' },
       { key: '메모', label: '메모' },
     ],
-    templateRow: ['가이던스','A2SKCSTX01RD','패널팬츠','블랙','37800',''],
+    templateRow: ['가이던스','A2SKCSTX01RD','패널팬츠','PANEL PANTS','블랙','37800',''],
   },
 }
 
@@ -199,6 +200,7 @@ export default function FlatImportButton({ entity, onImported }: {
             vendor_id: vId,
             code,
             name,
+            name_en: clean(r.영문명 || r.name_en),
             color: clean(r.컬러),
             selling_price: Number(r.판매가 || 0),
             notes: clean(r.메모),

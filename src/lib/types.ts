@@ -25,7 +25,8 @@ export interface Vendor {
 export interface Product {
   id: string
   code: string                       // 품번 (수동입력)
-  name: string                       // 품목명
+  name: string                       // 품목명 (한글)
+  name_en: string | null             // 영문 상품명 (선택)
   color: string | null
   vendor_id: string                  // 소속 거래처(고객)
   selling_price: number              // 판매가
