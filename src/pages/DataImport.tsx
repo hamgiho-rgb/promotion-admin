@@ -87,6 +87,164 @@ const ENTITY_SPECS: Record<EntityType, {
 type ImportResult = { ok: number; fail: number; errors: string[] }
 type DetectionResult = { entity: EntityType; confidence: number; reason: string } | null
 
+/* ───── AW 원본 입고내역서 파서 ─────
+ * 청운상사/마요네즈 등의 원본 엑셀 양식 (다중시트, 동적 사이즈 컬럼) 자동 감지 + 파싱
+ *
+ * 양식 시그니처:
+ *   - 어딘가에 "입 고 내 역 서" 또는 "입고내역서" 텍스트
+ *   - "OOO 귀하" 형식의 거래처명
+ *   - "품번" + "품목" + "사이즈" + "합계" 가 같은 헤더 행에 있음
+ */
+
+interface AWReceipt {
+  sheetName: string
+  vendor_name: string
+  period: string | null     // YYYY.MM
+  sizeLabels: string[]      // ["110","120",...] or ["1","2"] or ["S","M","L"]
+  items: {
+    product_code: string
+    product_name: string
+    sizes: Record<string, number>
+    total: number
+    delivery_date: string | null
+    carton_no: number | null
+  }[]
+}
+
+function parseAWWorkbook(wb: XLSX.WorkBook): AWReceipt[] {
+  const receipts: AWReceipt[] = []
+  for (const sheetName of wb.SheetNames) {
+    const sheet = wb.Sheets[sheetName]
+    const grid: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null })
+    const parsed = parseAWSheet(sheetName, grid)
+    if (parsed) receipts.push(parsed)
+  }
+  return receipts
+}
+
+function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
+  // 1. 거래처명 찾기 — "OOO 귀하" 패턴
+  let vendor_name = ''
+  for (let r = 0; r < Math.min(grid.length, 10); r++) {
+    const row = grid[r] || []
+    for (const cell of row) {
+      const s = String(cell ?? '').trim()
+      const m = s.match(/^(.+?)\s*귀하\s*$/)
+      if (m) { vendor_name = m[1].trim(); break }
+    }
+    if (vendor_name) break
+  }
+  if (!vendor_name) return null
+
+  // 2. period 찾기 — 시트 이름이 YYYY.MM 형식이거나 A2 가 그 형식
+  let period: string | null = null
+  if (/^\d{4}\.\d{2}$/.test(sheetName)) period = sheetName
+  if (!period) {
+    for (let r = 0; r < Math.min(grid.length, 5); r++) {
+      for (const cell of grid[r] || []) {
+        const s = String(cell ?? '').trim()
+        if (/^\d{4}\.\d{2}$/.test(s)) { period = s; break }
+      }
+      if (period) break
+    }
+  }
+
+  // 3. 헤더 행 찾기 — "품번", "품목", "사이즈", "합계" 한 행에 모두
+  let headerRow = -1
+  let colCode = -1, colName = -1, colSizeStart = -1, colTotal = -1, colDate = -1, colCarton = -1
+  for (let r = 0; r < Math.min(grid.length, 20); r++) {
+    const row = grid[r] || []
+    const text = row.map(c => String(c ?? '').trim())
+    if (text.includes('품번') && text.includes('품목') && text.includes('사이즈') && text.includes('합계')) {
+      headerRow = r
+      colCode = text.indexOf('품번')
+      colName = text.indexOf('품목')
+      colSizeStart = text.indexOf('사이즈')
+      colTotal = text.indexOf('합계')
+      colDate = text.indexOf('입고일')
+      colCarton = text.indexOf('C/T')
+      if (colCarton < 0) colCarton = text.indexOf('CT')
+      break
+    }
+  }
+  if (headerRow < 0) return null
+
+  // 4. 사이즈 라벨 행 — 헤더 다음 행, 사이즈 컬럼들에서 값 가져오기
+  const sizeLabels: string[] = []
+  const sizeCols: number[] = []
+  if (headerRow + 1 < grid.length) {
+    const labelRow = grid[headerRow + 1] || []
+    for (let c = colSizeStart; c < (colTotal > 0 ? colTotal : labelRow.length); c++) {
+      const v = labelRow[c]
+      if (v == null || v === '') continue
+      sizeLabels.push(String(v).trim())
+      sizeCols.push(c)
+    }
+  }
+  if (sizeLabels.length === 0) return null
+
+  // 5. 데이터 행 읽기 — headerRow + 2 부터
+  const items: AWReceipt['items'] = []
+  for (let r = headerRow + 2; r < grid.length; r++) {
+    const row = grid[r] || []
+    const code = String(row[colCode] ?? '').trim()
+    const name = String(row[colName] ?? '').trim()
+    if (!code && !name) continue  // 빈 행
+    if (code === '품번' || name === '품목') continue  // 헤더 반복 무시
+
+    const sizes: Record<string, number> = {}
+    let total = 0
+    sizeLabels.forEach((label, i) => {
+      const v = Number(row[sizeCols[i]] || 0)
+      sizes[label] = v
+      total += v
+    })
+    if (colTotal >= 0) {
+      const sheetTotal = Number(row[colTotal] || 0)
+      if (sheetTotal > 0) total = sheetTotal  // 시트의 합계가 정확하면 사용
+    }
+    if (total === 0 && !code) continue  // 의미 없는 행
+
+    let delivery_date: string | null = null
+    if (colDate >= 0) {
+      const d = row[colDate]
+      if (d instanceof Date) delivery_date = d.toISOString().slice(0, 10)
+      else if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) delivery_date = d.slice(0, 10)
+    }
+
+    let carton_no: number | null = null
+    if (colCarton >= 0) {
+      const c = Number(row[colCarton])
+      if (!isNaN(c) && c > 0) carton_no = c
+    }
+
+    items.push({ product_code: code, product_name: name, sizes, total, delivery_date, carton_no })
+  }
+
+  if (items.length === 0) return null
+
+  return { sheetName, vendor_name, period, sizeLabels, items }
+}
+
+function isAWFormat(wb: XLSX.WorkBook): boolean {
+  // 첫 시트에서 "입 고 내 역 서" 또는 "귀하" 가 있으면 AW 양식
+  for (const sn of wb.SheetNames) {
+    const sheet = wb.Sheets[sn]
+    const grid: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null })
+    for (let r = 0; r < Math.min(grid.length, 10); r++) {
+      const row = grid[r] || []
+      for (const cell of row) {
+        const s = String(cell ?? '')
+        if (s.includes('입 고 내 역 서') || s.includes('입고내역서') || /\S+\s*귀하/.test(s)) {
+          return true
+        }
+      }
+    }
+    return false  // 첫 시트만 검사
+  }
+  return false
+}
+
 /* ───── 헤더 자동 인식 휴리스틱 ───── */
 function detectEntityType(headers: string[]): DetectionResult {
   // 정규화: 소문자 + 공백 제거
@@ -165,6 +323,7 @@ export default function DataImport() {
   const [detection, setDetection] = useState<DetectionResult>(null)
   const [result, setResult] = useState<ImportResult | null>(null)
   const [importing, setImporting] = useState(false)
+  const [awReceipts, setAWReceipts] = useState<AWReceipt[]>([])  // AW 원본 양식 미리보기
   const fileRef = useRef<HTMLInputElement>(null)
 
   const spec = ENTITY_SPECS[entity]
@@ -176,7 +335,21 @@ export default function DataImport() {
     reader.onload = (evt) => {
       try {
         const data = new Uint8Array(evt.target?.result as ArrayBuffer)
-        const wb = XLSX.read(data, { type: 'array' })
+        const wb = XLSX.read(data, { type: 'array', cellDates: true })
+
+        // 1) AW 원본 입고내역서 양식 우선 감지
+        if (isAWFormat(wb)) {
+          const receipts = parseAWWorkbook(wb)
+          if (receipts.length > 0) {
+            setAWReceipts(receipts)
+            setHeaders([]); setRows([]); setResult(null)
+            setDetection({ entity: 'incoming', confidence: 99, reason: 'AW 원본 입고내역서 양식 감지 — 시트별 자동 분리' })
+            setEntity('incoming')
+            return
+          }
+        }
+
+        // 2) 일반 평탄 표 양식
         const sheet = wb.Sheets[wb.SheetNames[0]]
         const json: any[][] = XLSX.utils.sheet_to_json(sheet, { header: 1, defval: null })
         if (json.length === 0) { alert('파일이 비어있어요.'); return }
@@ -189,6 +362,7 @@ export default function DataImport() {
         })
         setHeaders(headerRow)
         setRows(objRows)
+        setAWReceipts([])
         setResult(null)
 
         // 자동 인식
@@ -209,7 +383,87 @@ export default function DataImport() {
     setHeaders([])
     setResult(null)
     setDetection(null)
+    setAWReceipts([])
     if (fileRef.current) fileRef.current.value = ''
+  }
+
+  // AW 원본 양식 일괄 import
+  async function handleAWImport() {
+    if (awReceipts.length === 0) return
+    const total = awReceipts.reduce((s, r) => s + r.items.length, 0)
+    if (!confirm(`${awReceipts.length}개 시트, 총 ${total}개 라인을 가져올까요?`)) return
+
+    setImporting(true)
+    setResult(null)
+    let ok = 0, fail = 0
+    const errors: string[] = []
+
+    try {
+      // 거래처 매핑
+      const { data: vendorsData } = await supabase.from('vendors').select('*').eq('vendor_type', 'customer')
+      const vendorByName = new Map<string, any>()
+      ;(vendorsData ?? []).forEach(v => vendorByName.set(v.name, v))
+
+      // 상품 매핑 (품번 → product_id)
+      const { data: productsData } = await supabase.from('products').select('id, code')
+      const productByCode = new Map<string, string>()
+      ;(productsData ?? []).forEach(p => { if (p.code) productByCode.set(p.code, p.id) })
+
+      for (const receipt of awReceipts) {
+        let vendor = vendorByName.get(receipt.vendor_name)
+        // 없으면 자동 생성
+        if (!vendor) {
+          const { data: newV, error: cErr } = await supabase.from('vendors').insert({
+            name: receipt.vendor_name,
+            vendor_type: 'customer',
+            size_system: receipt.sizeLabels,
+          }).select().single()
+          if (cErr) { fail += receipt.items.length; errors.push(`${receipt.vendor_name}: 거래처 자동 생성 실패 ${cErr.message}`); continue }
+          vendor = newV
+          vendorByName.set(receipt.vendor_name, newV)
+        }
+        // 거래처의 size_system 비어있으면 채워줌
+        if (!vendor.size_system || vendor.size_system.length === 0) {
+          await supabase.from('vendors').update({ size_system: receipt.sizeLabels }).eq('id', vendor.id)
+          vendor.size_system = receipt.sizeLabels
+        }
+
+        // incoming 생성
+        const { data: incData, error: incErr } = await supabase.from('incoming').insert({
+          vendor_id: vendor.id,
+          period: receipt.period,
+          producer: 'AW',
+        }).select().single()
+        if (incErr) { fail += receipt.items.length; errors.push(`${receipt.vendor_name} ${receipt.sheetName}: ${incErr.message}`); continue }
+
+        // incoming_items 일괄 insert
+        const payload = receipt.items.map(it => ({
+          incoming_id: incData.id,
+          product_id: productByCode.get(it.product_code) || null,
+          product_code: it.product_code || null,
+          product_name: it.product_name || null,
+          sizes: it.sizes,
+          total_quantity: it.total,
+          delivery_date: it.delivery_date,
+          carton_no: it.carton_no,
+        }))
+        if (payload.length > 0) {
+          const { error: itErr } = await supabase.from('incoming_items').insert(payload)
+          if (itErr) {
+            fail += payload.length
+            errors.push(`${receipt.vendor_name} ${receipt.sheetName}: 라인 ${itErr.message}`)
+          } else {
+            ok += payload.length
+          }
+        }
+      }
+
+      setResult({ ok, fail, errors: errors.slice(0, 20) })
+    } catch (err: any) {
+      setResult({ ok, fail: total - ok, errors: [err.message] })
+    } finally {
+      setImporting(false)
+    }
   }
 
   async function handleImport() {
@@ -393,9 +647,21 @@ export default function DataImport() {
   return (
     <div>
       <PageHeader
-        title="엑셀 가져오기"
-        description="기존 데이터를 엑셀 파일로 일괄 등록합니다. 양식 다운로드 → 데이터 입력 → 업로드 순서로 진행하세요."
+        title="엑셀 가져오기 (구버전)"
+        description="이 페이지는 통합 업로드 도구입니다. 평소엔 각 페이지의 '📥 엑셀 일괄 등록' 버튼을 쓰세요."
       />
+
+      <div className="mb-4 p-4 rounded-xl bg-blue-50 border border-blue-200 text-[12px] text-blue-900">
+        💡 <strong>각 페이지에서 바로 등록 가능</strong> — 새 방식 추천!
+        <ul className="mt-2 ml-4 list-disc space-y-1">
+          <li><strong>고객 거래처</strong> 페이지 → 우상단 [📥 엑셀 일괄 등록]</li>
+          <li><strong>공급처</strong> 페이지 → 우상단 [📥 엑셀 일괄 등록]</li>
+          <li><strong>상품 관리</strong> 페이지 → 우상단 [📥 엑셀 일괄 등록]</li>
+          <li><strong>입고내역서</strong> 페이지 → 우상단 [📥 엑셀 일괄 등록] (AW 원본 양식 자동 감지)</li>
+          <li><strong>계산서</strong> 페이지 → 우상단 [📥 엑셀 일괄 등록] (영수증 양식 자동 감지)</li>
+        </ul>
+        <p className="mt-2">이 페이지는 한꺼번에 여러 종류를 다룰 때 또는 백업용으로만 쓰세요.</p>
+      </div>
 
       {/* 항목 선택 + 양식 다운로드 */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-5 mb-4">
@@ -481,6 +747,76 @@ export default function DataImport() {
         </div>
       )}
 
+      {/* AW 원본 양식 미리보기 */}
+      {awReceipts.length > 0 && (
+        <div className="bg-white border border-emerald-200 rounded-2xl mb-4 overflow-hidden">
+          <div className="p-4 border-b border-zinc-100 bg-emerald-50/50 flex items-center justify-between flex-wrap gap-2">
+            <div>
+              <p className="text-[13px] font-semibold text-emerald-900">📦 AW 원본 입고내역서 양식 감지 — {awReceipts.length}개 시트</p>
+              <p className="text-[11px] text-emerald-700 mt-0.5">
+                시트마다 자동으로 거래처·기간·사이즈를 추출했어요. 거래처가 없으면 자동 생성됩니다.
+              </p>
+            </div>
+            <div className="flex gap-2">
+              <Button variant="ghost" size="sm" onClick={clearFile}>다시 선택</Button>
+              <Button onClick={handleAWImport} disabled={importing}>
+                {importing ? '가져오는 중...' : `${awReceipts.reduce((s, r) => s + r.items.length, 0)}건 일괄 등록`}
+              </Button>
+            </div>
+          </div>
+          <div className="divide-y divide-zinc-100">
+            {awReceipts.map((rec, idx) => (
+              <details key={idx} className="group">
+                <summary className="px-4 py-3 cursor-pointer hover:bg-zinc-50 flex items-center justify-between gap-3 list-none">
+                  <div className="flex items-center gap-3 flex-1 min-w-0">
+                    <span className="text-zinc-400 group-open:rotate-90 transition-transform inline-block">▶</span>
+                    <span className="font-semibold text-[13px] text-zinc-900">{rec.vendor_name}</span>
+                    <Badge color="blue">{rec.period || rec.sheetName}</Badge>
+                    <span className="text-[11px] text-zinc-500">사이즈: {rec.sizeLabels.join(', ')}</span>
+                  </div>
+                  <span className="text-[12px] text-zinc-600 font-medium tabular-nums">
+                    {rec.items.length}품목 · {rec.items.reduce((s, it) => s + it.total, 0).toLocaleString()}장
+                  </span>
+                </summary>
+                <div className="px-4 pb-4 overflow-x-auto">
+                  <table className="w-full text-[11px]">
+                    <thead className="bg-zinc-50">
+                      <tr>
+                        <th className="px-2 py-1.5 text-left">품번</th>
+                        <th className="px-2 py-1.5 text-left">품목</th>
+                        {rec.sizeLabels.map(s => (
+                          <th key={s} className="px-2 py-1.5 text-right">{s}</th>
+                        ))}
+                        <th className="px-2 py-1.5 text-right">합계</th>
+                        <th className="px-2 py-1.5 text-left">입고일</th>
+                        <th className="px-2 py-1.5 text-right">C/T</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {rec.items.slice(0, 30).map((it, i) => (
+                        <tr key={i} className="border-t border-zinc-100">
+                          <td className="px-2 py-1 font-mono text-[10px]">{it.product_code}</td>
+                          <td className="px-2 py-1">{it.product_name}</td>
+                          {rec.sizeLabels.map(s => (
+                            <td key={s} className="px-2 py-1 text-right tabular-nums">{it.sizes[s] || ''}</td>
+                          ))}
+                          <td className="px-2 py-1 text-right tabular-nums font-medium">{it.total}</td>
+                          <td className="px-2 py-1 text-[10px] text-zinc-500">{it.delivery_date || '—'}</td>
+                          <td className="px-2 py-1 text-right tabular-nums text-zinc-500">{it.carton_no ?? '—'}</td>
+                        </tr>
+                      ))}
+                      {rec.items.length > 30 && (
+                        <tr><td colSpan={4 + rec.sizeLabels.length} className="px-2 py-2 text-center text-zinc-500 text-[11px]">… 외 {rec.items.length - 30}건</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </details>
+            ))}
+          </div>
+        </div>
+      )}
+
       {/* 미리보기 */}
       {rows.length > 0 && (
         <div className="bg-white border border-zinc-200 rounded-2xl mb-4 overflow-hidden">
@@ -546,7 +882,7 @@ export default function DataImport() {
         </div>
       )}
 
-      {rows.length === 0 && !result && (
+      {rows.length === 0 && awReceipts.length === 0 && !result && (
         <Empty icon="📊" title="엑셀 파일을 선택하면 미리보기가 표시됩니다" />
       )}
     </div>

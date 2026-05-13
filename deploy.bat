@@ -76,7 +76,7 @@ if errorlevel 1 (
   echo  Nothing to commit.
   goto :end
 )
-git push
+git push -u origin HEAD
 if errorlevel 1 (
   echo  ERROR: push failed. Code is live but not backed up to GitHub.
   goto :end

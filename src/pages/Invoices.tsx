@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Invoice, InvoiceItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
 import { exportInvoiceReceipt, exportInvoiceReceiptsMulti } from '@/lib/exportXlsx'
+import InvoiceImportButton from '@/components/InvoiceImportButton'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 
 /* ──────────────────────────────────────────────────────────
@@ -140,6 +141,7 @@ export default function InvoicesPage() {
  description="거래처별 매출 계산서를 발행합니다. 입고에서 자동으로 가져오거나, 출력해서 거래처에 전달할 수 있어요."
  action={<>
    <Button variant="secondary" onClick={exportFiltered} disabled={filtered.length === 0}>📥 엑셀 내보내기 ({filtered.length})</Button>
+   <InvoiceImportButton onImported={load} />
    <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} disabled={vendors.length === 0}>＋ 새 계산서</Button>
  </>}
  />

@@ -4,6 +4,7 @@ import type { Vendor, Invoice, InvoiceItem, Product } from '@/lib/types'
 import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import SizePicker from '@/components/SizePicker'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
+import FlatImportButton from '@/components/FlatImportButton'
 
 /* 메모에서 "품목: A, B, C" 파싱 */
 function parseItems(memo: string | null | undefined): string[] {
@@ -118,6 +119,7 @@ export default function Customers() {
         description="내가 상품을 납품하는 브랜드/거래처. 거래처를 클릭하면 매출 상세를 볼 수 있어요."
         action={<>
           <Button variant="secondary" onClick={handleExport}>📥 엑셀 내보내기</Button>
+          <FlatImportButton entity="customers" onImported={load} />
           <Button onClick={() => { setEditing(null); setDrawerOpen(true) }}>＋ 새 고객 거래처</Button>
         </>}
       />

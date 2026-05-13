@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import type { Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
+import FlatImportButton from '@/components/FlatImportButton'
 
 /* ───── 공급처 (원단·부자재·공임을 사오는 곳) ───── */
 const CATEGORY_OPTIONS = [
@@ -127,6 +128,7 @@ export default function Suppliers() {
         description="원단·부자재·공임·포장 등을 사오는 거래처. 공급처를 클릭하면 취급 재료를 볼 수 있어요."
         action={<>
           <Button variant="secondary" onClick={handleExport}>📥 엑셀 내보내기</Button>
+          <FlatImportButton entity="suppliers" onImported={load} />
           <Button onClick={() => { setEditing(null); setDrawerOpen(true) }}>＋ 새 공급처</Button>
         </>}
       />

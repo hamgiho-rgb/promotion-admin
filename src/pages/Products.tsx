@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, ProductMargin } from '@/lib/types'
 import { Button, Input, Select, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import CustomerPicker from '@/components/CustomerPicker'
+import FlatImportButton from '@/components/FlatImportButton'
 
 export default function Products() {
  const navigate = useNavigate()
@@ -76,11 +77,12 @@ export default function Products() {
  <PageHeader
  title="상품 관리"
  description="거래처별 상품과 판매가를 관리합니다. 원가가 입력되면 자동으로 마진이 표시됩니다."
- action={
- <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} disabled={vendors.length === 0}>
- ＋ 새 상품
- </Button>
- }
+ action={<>
+   <FlatImportButton entity="products" onImported={load} />
+   <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} disabled={vendors.length === 0}>
+     ＋ 새 상품
+   </Button>
+ </>}
  />
 
  {/* 상단 요약 카드 */}

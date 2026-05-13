@@ -4,6 +4,7 @@ import type { Vendor, Product, Incoming, IncomingItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
 import { exportMultiSheet, rowsToSheet } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
+import IncomingImportButton from '@/components/IncomingImportButton'
 
 /* ───── 입고내역서별 집계 ───── */
 interface IncomingStats {
@@ -124,6 +125,7 @@ export default function IncomingPage() {
        { name: '입고내역_상세', rows: itemRows },
      ], '입고내역서')
    }} disabled={filtered.length === 0}>📥 엑셀 내보내기</Button>
+   <IncomingImportButton onImported={load} />
    <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} disabled={vendors.length === 0}>＋ 새 입고내역서</Button>
  </>}
  />
