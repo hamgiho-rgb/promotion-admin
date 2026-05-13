@@ -132,6 +132,34 @@ export interface ProductMargin {
   margin_rate: number
 }
 
+// 공급처 계산서 (공장에서 받은 청구서)
+export interface SupplierInvoice {
+  id: string
+  supplier_id: string
+  period: string | null         // "2026-05"
+  issue_date: string | null
+  notes: string | null
+  subtotal: number
+  vat: number
+  total: number
+  created_at: string
+  updated_at: string
+}
+
+export interface SupplierInvoiceItem {
+  id: string
+  invoice_id: string
+  line_date: string | null
+  product_name: string | null
+  brand: string | null
+  quantity: number
+  unit_price: number
+  amount: number                // 자동
+  notes: string | null
+  sort_order: number
+  created_at: string
+}
+
 // 견적서
 export type QuotationStatus = 'draft' | 'sent' | 'accepted' | 'rejected' | 'converted'
 
