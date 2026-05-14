@@ -1,11 +1,12 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/components/ui'
 import SupplierPicker from '@/components/SupplierPicker'
 
 export default function CostBreakdown() {
+  const navigate = useNavigate()
   const [products, setProducts] = useState<Product[]>([])
   const [suppliers, setSuppliers] = useState<Vendor[]>([])
   const [customers, setCustomers] = useState<Vendor[]>([])
@@ -226,6 +227,20 @@ export default function CostBreakdown() {
               </div>
             ) : (
               <>
+                {/* 선택 상품 헤더 + 빠른 이동 */}
+                <div className="bg-white border border-zinc-200 rounded-2xl p-4 mb-3 flex items-center justify-between gap-3 flex-wrap">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[18px]">📦</span>
+                    <div>
+                      <p className="text-[15px] font-semibold text-zinc-900">{selectedProduct.name}</p>
+                      <p className="text-[11px] text-zinc-500">{selectedProduct.code} {selectedProduct.color ? `· ${selectedProduct.color}` : ''}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => navigate(`/products/${selectedProduct.id}`)} className="text-[12px] text-blue-600 hover:underline whitespace-nowrap">
+                    상품 상세 보기 →
+                  </button>
+                </div>
+
                 {/* 요약 카드 */}
                 <div className="grid grid-cols-3 gap-3 mb-4">
                   <SummaryCard label="판매가" value={`₩${(selectedProduct.selling_price || 0).toLocaleString()}`} hint="상품에서 수정" />

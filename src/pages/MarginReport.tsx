@@ -230,19 +230,30 @@ export default function MarginReport() {
        ) : (
          <table className="w-full text-[12px]">
            <tbody>
-             {topProfitable.map((p, i) => (
+             {topProfitable.map((p, i) => {
+               const productId = (p as any).productId || (Array.from(byProduct.entries()).find(([k, v]) => v === p)?.[0])
+               return (
                <tr key={i} className="border-b border-zinc-50 last:border-b-0">
                  <td className="px-4 py-2 text-zinc-400 w-6 tabular-nums">{i + 1}</td>
                  <td className="px-1 py-2">
-                   <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
-                   <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                   {productId && !productId.startsWith('__none__') ? (
+                     <button onClick={() => navigate(`/products/${productId}`)} className="text-left hover:underline">
+                       <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
+                       <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                     </button>
+                   ) : (
+                     <>
+                       <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
+                       <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                     </>
+                   )}
                  </td>
                  <td className="px-4 py-2 text-right whitespace-nowrap">
                    <div className="font-bold tabular-nums text-emerald-700">₩{p.margin.toLocaleString()}</div>
                    <div className="text-[10px] text-emerald-600">{p.rate.toFixed(1)}%</div>
                  </td>
                </tr>
-             ))}
+             )})}
            </tbody>
          </table>
        )}
@@ -258,19 +269,30 @@ export default function MarginReport() {
        ) : (
          <table className="w-full text-[12px]">
            <tbody>
-             {topLossy.map((p, i) => (
+             {topLossy.map((p, i) => {
+               const productId = (p as any).productId || (Array.from(byProduct.entries()).find(([k, v]) => v === p)?.[0])
+               return (
                <tr key={i} className="border-b border-zinc-50 last:border-b-0">
                  <td className="px-4 py-2 text-zinc-400 w-6 tabular-nums">{i + 1}</td>
                  <td className="px-1 py-2">
-                   <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
-                   <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                   {productId && !productId.startsWith('__none__') ? (
+                     <button onClick={() => navigate(`/products/${productId}`)} className="text-left hover:underline">
+                       <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
+                       <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                     </button>
+                   ) : (
+                     <>
+                       <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
+                       <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                     </>
+                   )}
                  </td>
                  <td className="px-4 py-2 text-right whitespace-nowrap">
                    <div className="font-bold tabular-nums text-rose-700">−₩{Math.abs(p.margin).toLocaleString()}</div>
                    <div className="text-[10px] text-rose-600">{p.rate.toFixed(1)}%</div>
                  </td>
                </tr>
-             ))}
+             )})}
            </tbody>
          </table>
        )}

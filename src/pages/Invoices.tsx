@@ -881,6 +881,25 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  </div>
  </div>
 
+ {/* 출처 링크 — 이 계산서가 어디서 발행됐는지 */}
+ {(form.quotation_id || form.incoming_id) && (
+   <div className="mt-3 bg-blue-50 border border-blue-200 rounded-xl p-3">
+     <p className="text-[11px] font-semibold uppercase tracking-wider text-blue-700 mb-1.5">🔗 발행 출처</p>
+     <div className="flex items-center gap-2 flex-wrap">
+       {form.quotation_id && (
+         <button onClick={() => navigate('/quotations')} className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-white border border-blue-300 text-blue-700 hover:bg-blue-100">
+           📑 견적서에서 발행 →
+         </button>
+       )}
+       {form.incoming_id && (
+         <button onClick={() => navigate('/incoming')} className="inline-flex items-center gap-1 text-[12px] px-2.5 py-1 rounded-md bg-white border border-blue-300 text-blue-700 hover:bg-blue-100">
+           📦 입고에서 발행 →
+         </button>
+       )}
+     </div>
+   </div>
+ )}
+
  {/* 선납액 (계약금) - 견적서에서 발행했을 때 자동 채워짐, 수정 가능 */}
  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
  <div className="flex items-center justify-between mb-2">
