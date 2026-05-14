@@ -19,6 +19,7 @@ import DataImport from '@/pages/DataImport'
 import Settings from '@/pages/Settings'
 import SupplierPayments from '@/pages/SupplierPayments'
 import SupplierInvoices from '@/pages/SupplierInvoices'
+import SupplierInvoicePrint from '@/pages/SupplierInvoicePrint'
 import Trash from '@/pages/Trash'
 
 export default function App() {
@@ -29,6 +30,7 @@ export default function App() {
       <Route path="/invoices/:id/print"   element={<InvoicePrint />} />
       <Route path="/quotations/:id/print" element={<QuotationPrint />} />
       <Route path="/incoming/:id/print"   element={<IncomingPrint />} />
+      <Route path="/supplier-invoices/:id/print" element={<SupplierInvoicePrint />} />
 
       {/* 그 외에는 사이드바 레이아웃 */}
       <Route path="/*" element={

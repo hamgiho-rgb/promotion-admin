@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, SupplierInvoice, SupplierInvoiceItem } from '@/lib/types'
@@ -14,6 +15,7 @@ import { softDelete } from '@/lib/trash'
  * ──────────────────────────────────────────────── */
 
 export default function SupplierInvoices() {
+  const navigate = useNavigate()
   const [suppliers, setSuppliers] = useState<Vendor[]>([])
   const [invoices, setInvoices] = useState<SupplierInvoice[]>([])
   const [itemsByInvoice, setItemsByInvoice] = useState<Map<string, SupplierInvoiceItem[]>>(new Map())
@@ -184,6 +186,7 @@ export default function SupplierInvoices() {
                             <td className="px-4 py-2.5 text-right font-semibold tabular-nums">₩{Number(inv.total).toLocaleString()}</td>
                             <td className="px-4 py-2.5 text-zinc-500 text-[11px] max-w-xs truncate">{inv.notes || '—'}</td>
                             <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                              <Button size="sm" variant="ghost" onClick={() => navigate(`/supplier-invoices/${inv.id}/print`)} title="공급처 계산서 출력">🖨️ 출력</Button>
                               <Button size="sm" variant="ghost" onClick={() => setDetail(inv)}>상세</Button>
                               <Button size="sm" variant="ghost" onClick={() => handleDelete(inv)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
                             </td>
