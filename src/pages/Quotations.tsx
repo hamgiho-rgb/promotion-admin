@@ -314,7 +314,16 @@ export default function QuotationsPage() {
                    {Number(q.deposit_rate) > 0 ? (
                      <div>
                        <div className="font-medium">₩{Number(q.deposit_amount).toLocaleString()}</div>
-                       <div className="text-[10px] text-zinc-500">{q.deposit_rate}% {q.deposit_received ? '✓ 수령' : '미수령'}</div>
+                       {q.deposit_received ? (
+                         <div className="text-[10px] text-emerald-600">✓ 수령</div>
+                       ) : (() => {
+                         // 미수령 경과일 (수락된 견적만 카운트)
+                         if (q.status !== 'accepted') return <div className="text-[10px] text-zinc-500">{q.deposit_rate}% 미수령</div>
+                         const issued = new Date(q.issue_date).getTime()
+                         const days = Math.floor((Date.now() - issued) / (24 * 60 * 60 * 1000))
+                         const cls = days >= 14 ? 'text-rose-700 font-semibold' : days >= 7 ? 'text-amber-700' : 'text-zinc-500'
+                         return <div className={`text-[10px] ${cls}`}>{q.deposit_rate}% · 미수령 {days}일</div>
+                       })()}
                      </div>
                    ) : <span className="text-zinc-300">—</span>}
                  </td>

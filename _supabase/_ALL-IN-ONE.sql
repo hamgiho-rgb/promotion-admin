@@ -151,6 +151,12 @@ create index if not exists idx_invoices_incoming on invoices(incoming_id) where 
 alter table invoice_items add column if not exists size text;
 
 -- ────────────────────────────────────────
+-- 7-2. 계산서 입금 추적 (paid_at, null=미수)
+-- ────────────────────────────────────────
+alter table invoices add column if not exists paid_at timestamptz;
+create index if not exists idx_invoices_unpaid on invoices(issue_date) where paid_at is null and deleted_at is null;
+
+-- ────────────────────────────────────────
 -- 8. 휴지통 (soft delete) — 모든 주요 테이블에 deleted_at
 -- ────────────────────────────────────────
 alter table vendors           add column if not exists deleted_at timestamptz;

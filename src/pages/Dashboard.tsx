@@ -18,6 +18,7 @@ type SummaryType = 'this_month_revenue' | 'last_month_revenue' | 'ytd_revenue' |
 interface AlertStats {
   acceptedNoDeposit: { count: number; amount: number }   // 수락된 견적인데 계약금 미수령
   paidDepositNoInvoice: { count: number; amount: number } // 계약금 받았는데 계산서 미발행
+  unpaidInvoices: { count: number; amount: number; overdueCount: number } // 미수 계산서 (overdue = 30일+)
   productsNoPrice: number                                 // 판매가 미입력 상품
   productsNoCost: number                                  // 원가 미입력 상품
   trashTotal: number                                      // 휴지통 총 건수
@@ -86,6 +87,14 @@ export default function Dashboard() {
     const acceptedNoDeposit = accepted.filter((q: any) => !q.deposit_received)
     const invQuotIds = new Set((invData ?? []).map((i: any) => i.quotation_id).filter(Boolean))
     const paidDepNoInvoice = accepted.filter((q: any) => q.deposit_received && !invQuotIds.has(q.id))
+    // 미수 계산서 (paid_at이 null) + 30일 이상 경과 건수
+    const unpaidList = (invData ?? []).filter((i: any) => !i.paid_at)
+    const now = Date.now()
+    const overdueList = unpaidList.filter((i: any) => {
+      const issued = new Date(i.issue_date).getTime()
+      return (now - issued) / (24 * 60 * 60 * 1000) >= 30
+    })
+    const unpaidAmount = unpaidList.reduce((s: number, i: any) => s + Number(i.total || 0) - Number(i.deposit_amount || 0), 0)
     const productsNoPrice = (prodData ?? []).filter((p: any) => !Number(p.selling_price || 0)).length
     const prodsWithCost = new Set((costData ?? []).map((c: any) => c.product_id).filter(Boolean))
     const productsNoCost = (prodData ?? []).filter((p: any) => !prodsWithCost.has(p.id)).length
@@ -99,6 +108,11 @@ export default function Dashboard() {
       paidDepositNoInvoice: {
         count: paidDepNoInvoice.length,
         amount: paidDepNoInvoice.reduce((s: number, q: any) => s + Number(q.total || 0), 0),
+      },
+      unpaidInvoices: {
+        count: unpaidList.length,
+        amount: unpaidAmount,
+        overdueCount: overdueList.length,
       },
       productsNoPrice,
       productsNoCost,
@@ -214,12 +228,26 @@ export default function Dashboard() {
       </div>
 
       {/* 알림 위젯 — 즉시 처리해야 할 일들 */}
-      {alerts && (alerts.acceptedNoDeposit.count + alerts.paidDepositNoInvoice.count + alerts.productsNoPrice + alerts.productsNoCost + alerts.trashTotal > 0) && (
+      {alerts && (alerts.acceptedNoDeposit.count + alerts.paidDepositNoInvoice.count + alerts.unpaidInvoices.count + alerts.productsNoPrice + alerts.productsNoCost + alerts.trashTotal > 0) && (
         <div className="mb-6">
           <h2 className="text-[13px] font-semibold text-zinc-700 mb-2 flex items-center gap-2">
             🔔 확인이 필요한 항목
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {alerts.unpaidInvoices.count > 0 && (
+              <AlertCard
+                icon={alerts.unpaidInvoices.overdueCount > 0 ? '🔴' : '💵'}
+                tone={alerts.unpaidInvoices.overdueCount > 0 ? 'rose' : 'amber'}
+                title="미수금 (입금 안 받은 계산서)"
+                value={`₩${alerts.unpaidInvoices.amount.toLocaleString()}`}
+                hint={
+                  alerts.unpaidInvoices.overdueCount > 0
+                    ? `${alerts.unpaidInvoices.count}건 (그 중 30일+ 경과 ${alerts.unpaidInvoices.overdueCount}건)`
+                    : `${alerts.unpaidInvoices.count}건 발행`
+                }
+                onClick={() => navigate('/invoices')}
+              />
+            )}
             {alerts.acceptedNoDeposit.count > 0 && (
               <AlertCard
                 icon="💰"

@@ -311,6 +311,15 @@ export default function InvoicesPage() {
    <div className="flex items-center gap-1.5 flex-wrap">
      <Badge color="green">{vendorName(i.vendor_id)}</Badge>
      {i.quotation_id && <Badge color="violet">견적서</Badge>}
+     {(() => {
+       if (i.paid_at) return <Badge color="green">💵 입금완료</Badge>
+       // 미수 — 경과일 계산
+       const issued = new Date(i.issue_date).getTime()
+       const days = Math.floor((Date.now() - issued) / (24*60*60*1000))
+       if (days >= 30) return <Badge color="rose">⚠ 미수 {days}일</Badge>
+       if (days >= 14) return <Badge color="amber">미수 {days}일</Badge>
+       return <Badge color="zinc">미수 {days}일</Badge>
+     })()}
    </div>
  </td>
  <td className="px-4 py-2.5 text-right tabular-nums">₩{Number(i.subtotal).toLocaleString()}</td>
@@ -661,9 +670,10 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  supplier_address: form.supplier_address || '',
  bank_info: form.bank_info || '',
  subtotal, vat, total,
- // 견적서 연결 + 선납액
+ // 견적서 연결 + 선납액 + 입금 상태
  quotation_id: form.quotation_id || null,
  deposit_amount: Number(form.deposit_amount || 0),
+ paid_at: form.paid_at || null,
  notes: form.notes?.trim() || null,
  }
 
@@ -907,6 +917,27 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
      </div>
    </div>
  )}
+
+ {/* 입금 상태 — 입금 받았는지 체크 (미수금 추적용) */}
+ <div className="mt-3 bg-emerald-50 border border-emerald-200 rounded-xl p-3">
+   <label className="flex items-center gap-2 cursor-pointer">
+     <input
+       type="checkbox"
+       checked={!!form.paid_at}
+       onChange={e => update('paid_at', e.target.checked ? new Date().toISOString() : null)}
+       className="rounded"
+     />
+     <span className="text-[12px] font-semibold text-emerald-800">💵 입금 받음</span>
+     {form.paid_at && (
+       <span className="text-[11px] text-emerald-700 ml-1">
+         · {new Date(form.paid_at).toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul' })}
+       </span>
+     )}
+   </label>
+   {!form.paid_at && (
+     <p className="text-[11px] text-emerald-700 mt-1 ml-6">체크하면 미수금 알림에서 제외됩니다.</p>
+   )}
+ </div>
 
  {/* 선납액 (계약금) - 견적서에서 발행했을 때 자동 채워짐, 수정 가능 */}
  <div className="mt-3 bg-amber-50 border border-amber-200 rounded-xl p-4">
