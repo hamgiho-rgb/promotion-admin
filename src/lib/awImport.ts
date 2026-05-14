@@ -32,24 +32,14 @@ export function excelCellToISODate(cell: any): string | null {
     return null
   }
 
-  // 3) Date 객체 — UTC 자정인지 로컬 자정인지 판별해서 그 쪽 날짜 사용
+  // 3) Date 객체 — SheetJS가 1900 윤년 보정 오차로 자정에서 ±몇 초/분 오프셋된 값을 줄 수 있음.
+  //    (예: 5/8 셀 → 5/7 23:59:08 같은 식)
+  //    → 가장 가까운 UTC 자정으로 반올림해서 그 날짜를 사용 → 모든 오차 케이스 보정됨.
   if (cell instanceof Date) {
-    const isUTCMidnight = cell.getUTCHours() === 0 && cell.getUTCMinutes() === 0
-    const isLocalMidnight = cell.getHours() === 0 && cell.getMinutes() === 0
-    if (isUTCMidnight) {
-      // SheetJS가 UTC 자정으로 만듦 → UTC 메서드로 꺼냄
-      return `${cell.getUTCFullYear()}-${String(cell.getUTCMonth() + 1).padStart(2, '0')}-${String(cell.getUTCDate()).padStart(2, '0')}`
-    }
-    if (isLocalMidnight) {
-      // 로컬 자정 → 로컬 메서드
-      return `${cell.getFullYear()}-${String(cell.getMonth() + 1).padStart(2, '0')}-${String(cell.getDate()).padStart(2, '0')}`
-    }
-    // 둘 다 아니면 — 가장 가까운 자정 쪽으로
-    const utcOffsetMin = cell.getTimezoneOffset()
-    if (Math.abs(utcOffsetMin * 60 * 1000 - cell.getTime() % (24 * 60 * 60 * 1000)) < 12 * 60 * 60 * 1000) {
-      return `${cell.getFullYear()}-${String(cell.getMonth() + 1).padStart(2, '0')}-${String(cell.getDate()).padStart(2, '0')}`
-    }
-    return `${cell.getUTCFullYear()}-${String(cell.getUTCMonth() + 1).padStart(2, '0')}-${String(cell.getUTCDate()).padStart(2, '0')}`
+    const ms = cell.getTime()
+    const dayMs = 24 * 60 * 60 * 1000
+    const roundedToMidnight = new Date(Math.round(ms / dayMs) * dayMs)
+    return `${roundedToMidnight.getUTCFullYear()}-${String(roundedToMidnight.getUTCMonth() + 1).padStart(2, '0')}-${String(roundedToMidnight.getUTCDate()).padStart(2, '0')}`
   }
   return null
 }
@@ -189,22 +179,7 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
 
     let delivery_date: string | null = null
     if (colDate >= 0) {
-      const raw = row[colDate]
-      delivery_date = excelCellToISODate(raw)
-      // 🐛 디버그: 처음 5개만 콘솔에 찍어서 진단용
-      if (items.length < 5) {
-        console.log('[awImport date]', {
-          rowIndex: r,
-          rawValue: raw,
-          rawType: typeof raw,
-          isDate: raw instanceof Date,
-          dateString: raw instanceof Date ? raw.toString() : null,
-          dateISO: raw instanceof Date ? raw.toISOString() : null,
-          getUTCDate: raw instanceof Date ? raw.getUTCDate() : null,
-          getDate: raw instanceof Date ? raw.getDate() : null,
-          parsed: delivery_date,
-        })
-      }
+      delivery_date = excelCellToISODate(row[colDate])
     }
 
     let carton_no: number | null = null
