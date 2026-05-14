@@ -6,6 +6,7 @@ import SizePicker from '@/components/SizePicker'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import FlatImportButton from '@/components/FlatImportButton'
 import { softDelete } from '@/lib/trash'
+import { findDuplicateGroups } from '@/lib/vendorMatch'
 
 /* 메모에서 "품목: A, B, C" 파싱 */
 function parseItems(memo: string | null | undefined): string[] {
@@ -42,6 +43,7 @@ export default function Customers() {
   const [editing, setEditing] = useState<Vendor | null>(null)
   const [salesDrawerVendor, setSalesDrawerVendor] = useState<Vendor | null>(null)
   const [mergingFrom, setMergingFrom] = useState<Vendor | null>(null)  // 병합 모달 — 원본(없어질 거래처)
+  const [duplicateScanOpen, setDuplicateScanOpen] = useState(false)    // 중복 검사 모달
 
   async function load() {
     setLoading(true)
@@ -170,6 +172,7 @@ export default function Customers() {
             <p className="text-[12px] text-emerald-100/80 mt-1">내가 상품을 납품하는 브랜드 · 거래처별 매출 상세 보기</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="secondary" onClick={() => setDuplicateScanOpen(true)} className="bg-white/10 hover:bg-white/20 text-white border-white/20">🔍 중복 검사</Button>
             <Button variant="secondary" onClick={handleExport} className="bg-white/10 hover:bg-white/20 text-white border-white/20">📥 엑셀</Button>
             <FlatImportButton entity="customers" onImported={load} />
             <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} className="bg-white text-emerald-900 hover:bg-emerald-50">＋ 새 거래처</Button>
@@ -236,6 +239,113 @@ export default function Customers() {
         onClose={() => setMergingFrom(null)}
         onConfirm={(to) => mergingFrom && mergeVendor(mergingFrom, to)}
       />
+
+      <DuplicateScanModal
+        open={duplicateScanOpen}
+        vendors={vendors}
+        statsMap={statsMap}
+        onClose={() => setDuplicateScanOpen(false)}
+        onMergePick={(v) => { setDuplicateScanOpen(false); setMergingFrom(v) }}
+      />
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 중복 의심 거래처 검사 모달
+ * fuzzy 매칭으로 같은 회사로 의심되는 거래처 그룹 보여주고
+ * 각 그룹에서 [병합하기] 누르면 → MergeVendorModal로 진입
+ * ───────────────────────────────────────────── */
+function DuplicateScanModal({ open, vendors, statsMap, onClose, onMergePick }: {
+  open: boolean
+  vendors: Vendor[]
+  statsMap: Map<string, VendorStats>
+  onClose: () => void
+  onMergePick: (v: Vendor) => void
+}) {
+  if (!open) return null
+  const groups = findDuplicateGroups(vendors)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-100">
+          <h2 className="text-[16px] font-semibold text-zinc-900">🔍 중복 거래처 검사</h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">
+            이름이 비슷하거나 회사명이 겹치는 거래처를 자동으로 묶어서 보여드려요.
+            (예: "마요네즈" / "주식회사마요네즈" / "단델(마요네즈)")
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {groups.length === 0 ? (
+            <div className="py-12 text-center">
+              <div className="text-4xl mb-2">🎉</div>
+              <p className="text-[14px] font-medium text-zinc-900">중복 의심 거래처가 없어요</p>
+              <p className="text-[12px] text-zinc-500 mt-1">{vendors.length}개 거래처 모두 깔끔합니다.</p>
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[12px]">
+                ⚠ {groups.length}개 그룹에서 중복 의심 거래처 {groups.reduce((s, g) => s + g.length, 0)}건 발견
+              </div>
+              <div className="space-y-3">
+                {groups.map((group, gi) => {
+                  // 그룹 안에서 데이터 가장 많은 거래처를 추천 (남길 후보)
+                  const sorted = [...group].sort((a, b) => {
+                    const sa = statsMap.get(a.id), sb = statsMap.get(b.id)
+                    const scoreA = (sa?.ytdRevenue || 0) + (sa?.productCount || 0) * 1000
+                    const scoreB = (sb?.ytdRevenue || 0) + (sb?.productCount || 0) * 1000
+                    return scoreB - scoreA
+                  })
+                  const recommended = sorted[0]
+                  return (
+                    <div key={gi} className="border border-zinc-200 rounded-xl overflow-hidden">
+                      <div className="px-3 py-2 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
+                        <span className="text-[12px] font-semibold text-zinc-700">그룹 {gi + 1} · {group.length}개 거래처</span>
+                        <span className="text-[10px] text-zinc-500">💡 추천: <span className="font-semibold text-emerald-700">{recommended.name}</span> 로 합치기</span>
+                      </div>
+                      <div className="divide-y divide-zinc-100">
+                        {sorted.map(v => {
+                          const stats = statsMap.get(v.id)
+                          const isRec = v.id === recommended.id
+                          return (
+                            <div key={v.id} className={`px-3 py-2.5 flex items-center justify-between gap-2 ${isRec ? 'bg-emerald-50/30' : ''}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-[13px] text-zinc-900">{v.name}</span>
+                                  {v.company_name && <span className="text-[11px] text-zinc-500">({v.company_name})</span>}
+                                  {isRec && <Badge color="green">유지 추천</Badge>}
+                                </div>
+                                <div className="text-[10px] text-zinc-500 mt-0.5">
+                                  올해 매출 ₩{(stats?.ytdRevenue || 0).toLocaleString()} · 상품 {stats?.productCount || 0}개
+                                </div>
+                              </div>
+                              {!isRec && (
+                                <Button size="sm" variant="ghost" onClick={() => onMergePick(v)} className="text-violet-600 hover:bg-violet-50 whitespace-nowrap">
+                                  → 합치기
+                                </Button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+              <p className="mt-4 text-[11px] text-zinc-500 bg-zinc-50 rounded-lg p-3 border border-zinc-100">
+                💡 각 그룹에서 데이터가 가장 많은 거래처가 <strong>유지 추천</strong>으로 표시돼요.
+                다른 거래처의 [→ 합치기] 버튼을 누르면 그 거래처를 추천된 거래처로 합칠 수 있어요.
+              </p>
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-zinc-100 flex justify-end">
+          <Button variant="secondary" onClick={onClose}>닫기</Button>
+        </div>
+      </div>
     </div>
   )
 }

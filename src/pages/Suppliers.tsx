@@ -5,6 +5,7 @@ import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import FlatImportButton from '@/components/FlatImportButton'
 import { softDelete } from '@/lib/trash'
+import { findDuplicateGroups } from '@/lib/vendorMatch'
 
 /* ───── 공급처 (원단·부자재·공임을 사오는 곳) ───── */
 const CATEGORY_OPTIONS = [
@@ -63,6 +64,7 @@ export default function Suppliers() {
   const [editing, setEditing] = useState<Vendor | null>(null)
   const [materialDrawer, setMaterialDrawer] = useState<Vendor | null>(null)
   const [mergingFrom, setMergingFrom] = useState<Vendor | null>(null)
+  const [duplicateScanOpen, setDuplicateScanOpen] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -166,6 +168,7 @@ export default function Suppliers() {
             <p className="text-[12px] text-violet-100/80 mt-1">원단·부자재·공임·포장 등을 사오는 거래처 · 클릭하면 취급 재료 보기</p>
           </div>
           <div className="flex items-center gap-2 flex-wrap">
+            <Button variant="secondary" onClick={() => setDuplicateScanOpen(true)} className="bg-white/10 hover:bg-white/20 text-white border-white/20">🔍 중복 검사</Button>
             <Button variant="secondary" onClick={handleExport} className="bg-white/10 hover:bg-white/20 text-white border-white/20">📥 엑셀</Button>
             <FlatImportButton entity="suppliers" onImported={load} />
             <Button onClick={() => { setEditing(null); setDrawerOpen(true) }} className="bg-white text-violet-900 hover:bg-violet-50">＋ 새 공급처</Button>
@@ -233,6 +236,103 @@ export default function Suppliers() {
         onClose={() => setMergingFrom(null)}
         onConfirm={(to) => mergingFrom && mergeVendor(mergingFrom, to)}
       />
+
+      <DuplicateScanModal
+        open={duplicateScanOpen}
+        vendors={vendors}
+        statsMap={statsMap}
+        onClose={() => setDuplicateScanOpen(false)}
+        onMergePick={(v) => { setDuplicateScanOpen(false); setMergingFrom(v) }}
+      />
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 중복 의심 공급처 검사 모달
+ * ───────────────────────────────────────────── */
+function DuplicateScanModal({ open, vendors, statsMap, onClose, onMergePick }: {
+  open: boolean
+  vendors: Vendor[]
+  statsMap: Map<string, SupplierStats>
+  onClose: () => void
+  onMergePick: (v: Vendor) => void
+}) {
+  if (!open) return null
+  const groups = findDuplicateGroups(vendors)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-100">
+          <h2 className="text-[16px] font-semibold text-zinc-900">🔍 중복 공급처 검사</h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">
+            이름이 비슷하거나 회사명이 겹치는 공급처를 자동으로 묶어서 보여드려요.
+          </p>
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-4">
+          {groups.length === 0 ? (
+            <div className="py-12 text-center">
+              <div className="text-4xl mb-2">🎉</div>
+              <p className="text-[14px] font-medium text-zinc-900">중복 의심 공급처가 없어요</p>
+              <p className="text-[12px] text-zinc-500 mt-1">{vendors.length}개 공급처 모두 깔끔합니다.</p>
+            </div>
+          ) : (
+            <>
+              <div className="mb-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-50 border border-amber-200 text-amber-800 text-[12px]">
+                ⚠ {groups.length}개 그룹에서 중복 의심 공급처 {groups.reduce((s, g) => s + g.length, 0)}건 발견
+              </div>
+              <div className="space-y-3">
+                {groups.map((group, gi) => {
+                  // 그룹 안에서 데이터 가장 많은 공급처를 추천
+                  const sorted = [...group].sort((a, b) => {
+                    const sa = statsMap.get(a.id), sb = statsMap.get(b.id)
+                    return ((sb?.materialCount || 0) + (sb?.productCount || 0) * 10) - ((sa?.materialCount || 0) + (sa?.productCount || 0) * 10)
+                  })
+                  const recommended = sorted[0]
+                  return (
+                    <div key={gi} className="border border-zinc-200 rounded-xl overflow-hidden">
+                      <div className="px-3 py-2 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
+                        <span className="text-[12px] font-semibold text-zinc-700">그룹 {gi + 1} · {group.length}개 공급처</span>
+                        <span className="text-[10px] text-zinc-500">💡 추천: <span className="font-semibold text-emerald-700">{recommended.name}</span> 로 합치기</span>
+                      </div>
+                      <div className="divide-y divide-zinc-100">
+                        {sorted.map(v => {
+                          const stats = statsMap.get(v.id)
+                          const isRec = v.id === recommended.id
+                          return (
+                            <div key={v.id} className={`px-3 py-2.5 flex items-center justify-between gap-2 ${isRec ? 'bg-emerald-50/30' : ''}`}>
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  <span className="font-medium text-[13px] text-zinc-900">{v.name}</span>
+                                  {isRec && <Badge color="green">유지 추천</Badge>}
+                                </div>
+                                <div className="text-[10px] text-zinc-500 mt-0.5">
+                                  원가 사용 {stats?.materialCount || 0}건 · 사용 상품 {stats?.productCount || 0}개
+                                </div>
+                              </div>
+                              {!isRec && (
+                                <Button size="sm" variant="ghost" onClick={() => onMergePick(v)} className="text-violet-600 hover:bg-violet-50 whitespace-nowrap">
+                                  → 합치기
+                                </Button>
+                              )}
+                            </div>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-zinc-100 flex justify-end">
+          <Button variant="secondary" onClick={onClose}>닫기</Button>
+        </div>
+      </div>
     </div>
   )
 }

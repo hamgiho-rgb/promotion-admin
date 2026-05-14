@@ -96,6 +96,70 @@ export function findVendorByFuzzyName(
 }
 
 /**
+ * 중복 의심 거래처 그룹 검출.
+ * 정규화된 이름이 같거나 후보가 겹치면 같은 그룹으로 묶음.
+ *
+ * 반환: 그룹 배열. 각 그룹은 같은 회사로 의심되는 거래처들의 묶음.
+ *      vendor 1개짜리 그룹은 결과에서 제외 (중복 의심만 반환).
+ */
+export function findDuplicateGroups(vendors: Vendor[]): Vendor[][] {
+  // 각 거래처의 후보 정규화 키 모음
+  const vendorKeys = new Map<string, Set<string>>()  // vendor.id -> set of normalized keys
+  vendors.forEach(v => {
+    const keys = new Set<string>()
+    extractNameCandidates(v.name).forEach(c => {
+      const k = normalizeVendorName(c)
+      if (k && k.length >= 2) keys.add(k)
+    })
+    const cn = (v as any).company_name as string | undefined
+    if (cn) {
+      extractNameCandidates(cn).forEach(c => {
+        const k = normalizeVendorName(c)
+        if (k && k.length >= 2) keys.add(k)
+      })
+    }
+    vendorKeys.set(v.id, keys)
+  })
+
+  // Union-Find 비슷한 방식: 같은 키 공유하는 거래처를 한 그룹으로
+  const parent = new Map<string, string>()
+  vendors.forEach(v => parent.set(v.id, v.id))
+  function find(x: string): string {
+    let p = parent.get(x)!
+    while (p !== x) { x = p; p = parent.get(x)! }
+    return p
+  }
+  function union(a: string, b: string) {
+    const ra = find(a), rb = find(b)
+    if (ra !== rb) parent.set(ra, rb)
+  }
+
+  // 각 키에 어떤 vendor들이 매핑되는지 만든 후 같은 그룹으로 union
+  const keyToVendors = new Map<string, string[]>()
+  vendorKeys.forEach((keys, vid) => {
+    keys.forEach(k => {
+      if (!keyToVendors.has(k)) keyToVendors.set(k, [])
+      keyToVendors.get(k)!.push(vid)
+    })
+  })
+  keyToVendors.forEach(vids => {
+    if (vids.length < 2) return
+    for (let i = 1; i < vids.length; i++) union(vids[0], vids[i])
+  })
+
+  // 그룹별로 묶기
+  const groupsMap = new Map<string, Vendor[]>()
+  vendors.forEach(v => {
+    const root = find(v.id)
+    if (!groupsMap.has(root)) groupsMap.set(root, [])
+    groupsMap.get(root)!.push(v)
+  })
+
+  // 2개 이상인 그룹만 반환
+  return Array.from(groupsMap.values()).filter(g => g.length >= 2)
+}
+
+/**
  * Import 도우미 — 이름으로 거래처 찾거나, 없으면 새로 만들기.
  * vendorByName 캐시를 같이 받아서 같은 import 작업 안에서 중복 호출 방지.
  *
