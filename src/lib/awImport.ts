@@ -189,7 +189,22 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
 
     let delivery_date: string | null = null
     if (colDate >= 0) {
-      delivery_date = excelCellToISODate(row[colDate])
+      const raw = row[colDate]
+      delivery_date = excelCellToISODate(raw)
+      // 🐛 디버그: 처음 5개만 콘솔에 찍어서 진단용
+      if (items.length < 5) {
+        console.log('[awImport date]', {
+          rowIndex: r,
+          rawValue: raw,
+          rawType: typeof raw,
+          isDate: raw instanceof Date,
+          dateString: raw instanceof Date ? raw.toString() : null,
+          dateISO: raw instanceof Date ? raw.toISOString() : null,
+          getUTCDate: raw instanceof Date ? raw.getUTCDate() : null,
+          getDate: raw instanceof Date ? raw.getDate() : null,
+          parsed: delivery_date,
+        })
+      }
     }
 
     let carton_no: number | null = null
