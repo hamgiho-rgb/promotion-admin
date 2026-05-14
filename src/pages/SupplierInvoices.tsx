@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, SupplierInvoice, SupplierInvoiceItem } from '@/lib/types'
@@ -16,11 +16,13 @@ import { softDelete } from '@/lib/trash'
 
 export default function SupplierInvoices() {
   const navigate = useNavigate()
+  const [searchParams] = useSearchParams()
+  const urlSupplier = searchParams.get('supplier')
   const [suppliers, setSuppliers] = useState<Vendor[]>([])
   const [invoices, setInvoices] = useState<SupplierInvoice[]>([])
   const [itemsByInvoice, setItemsByInvoice] = useState<Map<string, SupplierInvoiceItem[]>>(new Map())
   const [loading, setLoading] = useState(true)
-  const [supplierFilter, setSupplierFilter] = useState<string>('all')
+  const [supplierFilter, setSupplierFilter] = useState<string>(urlSupplier || 'all')
   const thisMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
   const [monthFilter, setMonthFilter] = useState<string>('all')
   const [search, setSearch] = useState('')

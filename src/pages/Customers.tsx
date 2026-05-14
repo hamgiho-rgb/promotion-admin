@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Invoice, InvoiceItem, Product } from '@/lib/types'
 import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
@@ -35,6 +36,7 @@ interface VendorStats {
 
 /* ───── 고객 거래처 (내가 납품하는 브랜드) ───── */
 export default function Customers() {
+  const navigate = useNavigate()
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [statsMap, setStatsMap] = useState<Map<string, VendorStats>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -222,11 +224,11 @@ export default function Customers() {
             <Empty icon="🏢" title="아직 등록된 고객 거래처가 없어요" action={<Button onClick={() => { setEditing(null); setDrawerOpen(true) }}>＋ 등록</Button>} />
           ) : <Empty icon="🔍" title="검색 결과가 없습니다" />
         ) : tab === 'all' ? (
-          <AllTable vendors={filtered} statsMap={statsMap} onEdit={(v) => { setEditing(v); setDrawerOpen(true) }} onDelete={handleDelete} onShowSales={setSalesDrawerVendor} onMerge={setMergingFrom} />
+          <AllTable vendors={filtered} statsMap={statsMap} onEdit={(v) => { setEditing(v); setDrawerOpen(true) }} onDelete={handleDelete} onShowSales={setSalesDrawerVendor} onMerge={setMergingFrom} onGoToInvoices={(v) => navigate(`/invoices?vendor=${v.id}`)} />
         ) : tab === 'contacts' ? (
           <ContactsTable vendors={filtered} />
         ) : (
-          <SalesTable vendors={filtered} statsMap={statsMap} onShowSales={setSalesDrawerVendor} />
+          <SalesTable vendors={filtered} statsMap={statsMap} onShowSales={setSalesDrawerVendor} onGoToInvoices={(v) => navigate(`/invoices?vendor=${v.id}`)} />
         )}
       </div>
 
@@ -473,8 +475,8 @@ function TabBtn({ children, active, onClick }: { children: React.ReactNode; acti
 }
 
 /* ───── 탭 1: 전체 정보 ───── */
-function AllTable({ vendors, statsMap, onEdit, onDelete, onShowSales, onMerge }: {
-  vendors: Vendor[]; statsMap: Map<string, VendorStats>; onEdit: (v: Vendor) => void; onDelete: (v: Vendor) => void; onShowSales: (v: Vendor) => void; onMerge: (v: Vendor) => void
+function AllTable({ vendors, statsMap, onEdit, onDelete, onShowSales, onMerge, onGoToInvoices }: {
+  vendors: Vendor[]; statsMap: Map<string, VendorStats>; onEdit: (v: Vendor) => void; onDelete: (v: Vendor) => void; onShowSales: (v: Vendor) => void; onMerge: (v: Vendor) => void; onGoToInvoices: (v: Vendor) => void
 }) {
   return (
     <table className="w-full text-[13px]">
@@ -515,6 +517,7 @@ function AllTable({ vendors, statsMap, onEdit, onDelete, onShowSales, onMerge }:
                 <button onClick={() => onShowSales(v)} className="hover:underline">₩{(stats?.thisMonthRevenue || 0).toLocaleString()}</button>
               </td>
               <td className="px-4 py-3 text-right whitespace-nowrap">
+                <Button size="sm" variant="ghost" onClick={() => onGoToInvoices(v)} title="이 거래처의 계산서 페이지로" className="text-blue-600 hover:bg-blue-50">📄 계산서 →</Button>
                 <Button size="sm" variant="ghost" onClick={() => onMerge(v)} title="다른 거래처와 합치기 — 중복 등록된 경우 사용" className="text-violet-600 hover:bg-violet-50 hover:text-violet-700">🔗 합치기</Button>
                 <Button size="sm" variant="ghost" onClick={() => onEdit(v)}>수정</Button>
                 <Button size="sm" variant="ghost" onClick={() => onDelete(v)} className="text-rose-600 hover:bg-rose-50 hover:text-rose-700">삭제</Button>
@@ -557,8 +560,8 @@ function ContactsTable({ vendors }: { vendors: Vendor[] }) {
   )
 }
 
-function SalesTable({ vendors, statsMap, onShowSales }: {
-  vendors: Vendor[]; statsMap: Map<string, VendorStats>; onShowSales: (v: Vendor) => void
+function SalesTable({ vendors, statsMap, onShowSales, onGoToInvoices }: {
+  vendors: Vendor[]; statsMap: Map<string, VendorStats>; onShowSales: (v: Vendor) => void; onGoToInvoices: (v: Vendor) => void
 }) {
   const sorted = [...vendors].sort((a, b) => (statsMap.get(b.id)?.thisMonthRevenue || 0) - (statsMap.get(a.id)?.thisMonthRevenue || 0))
   return (
@@ -587,7 +590,8 @@ function SalesTable({ vendors, statsMap, onShowSales }: {
               <td className="px-4 py-3 text-right tabular-nums text-zinc-600">₩{(stats?.ytdRevenue || 0).toLocaleString()}</td>
               <td className="px-4 py-3 text-right tabular-nums text-zinc-600">{stats?.productCount || 0}개</td>
               <td className="px-4 py-3 text-right">
-                <Button size="sm" variant="ghost" onClick={() => onShowSales(v)}>요약 보기</Button>
+                <Button size="sm" variant="ghost" onClick={() => onShowSales(v)} title="간단 요약">요약</Button>
+                <Button size="sm" variant="ghost" onClick={() => onGoToInvoices(v)} className="text-blue-600 hover:bg-blue-50" title="계산서 페이지로 이동">📄 계산서 →</Button>
               </td>
             </tr>
           )

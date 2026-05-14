@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from 'react'
+import { useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, CostItem, Incoming, IncomingItem } from '@/lib/types'
 import { Button, Input, Select, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
@@ -67,10 +68,13 @@ export default function SupplierPayments() {
   const [items, setItems] = useState<IncomingItem[]>([])
   const [loading, setLoading] = useState(true)
 
-  const [period, setPeriod] = useState<Period>('thisMonth')
+  const [searchParams] = useSearchParams()
+  const urlSupplier = searchParams.get('supplier')
+  const [period, setPeriod] = useState<Period>(urlSupplier ? 'all' : 'thisMonth')
   const [customFrom, setCustomFrom] = useState('')
   const [customTo, setCustomTo] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('all')
+  const [supplierIdFilter, setSupplierIdFilter] = useState<string>(urlSupplier || 'all')
   const [detailSupplier, setDetailSupplier] = useState<SupplierTotal | null>(null)
 
   useEffect(() => {
@@ -186,8 +190,10 @@ export default function SupplierPayments() {
     })
 
     map.forEach((st, sid) => { st.productCount = productSets.get(sid)?.size || 0 })
-    return Array.from(map.values()).sort((a, b) => b.totalAmount - a.totalAmount)
-  }, [items, incomings, costItems, vendors, products, period, customFrom, customTo, categoryFilter, vendorById, productById, costItemsByProduct])
+    return Array.from(map.values())
+      .filter(st => supplierIdFilter === 'all' || st.supplier_id === supplierIdFilter)
+      .sort((a, b) => b.totalAmount - a.totalAmount)
+  }, [items, incomings, costItems, vendors, products, period, customFrom, customTo, categoryFilter, supplierIdFilter, vendorById, productById, costItemsByProduct])
 
   // 카테고리별 합계 (상단 카드)
   const byCategoryTotal = useMemo(() => {
@@ -288,6 +294,13 @@ export default function SupplierPayments() {
             </Select>
           </div>
         </div>
+        {/* 공급처 필터 (URL에서 들어왔거나 사용자가 선택한 경우 표시) */}
+        {supplierIdFilter !== 'all' && (
+          <div className="mt-3 flex items-center gap-2 px-3 py-1.5 bg-violet-50 border border-violet-200 rounded-lg text-[12px] text-violet-800">
+            🔍 <span className="font-semibold">{vendors.find(v => v.id === supplierIdFilter)?.name || '?'}</span> 공급처만 보고 있어요
+            <button onClick={() => setSupplierIdFilter('all')} className="ml-auto text-violet-600 hover:text-violet-900 underline text-[11px]">필터 해제</button>
+          </div>
+        )}
       </div>
 
       {/* 통계 카드 */}

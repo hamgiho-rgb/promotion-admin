@@ -25,12 +25,15 @@ export default function InvoicesPage() {
  const [loading, setLoading] = useState(true)
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Invoice | null>(null)
- const [vendorFilter, setVendorFilter] = useState<string>('all')
+ // URL ?vendor=ID → 그 거래처로 자동 필터 (거래처 페이지에서 [계산서 →] 누르고 옴)
+ const urlVendor = searchParams.get('vendor')
+ const [vendorFilter, setVendorFilter] = useState<string>(urlVendor || 'all')
  const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
  // URL ?month=YYYY-MM 또는 ?year=YYYY 를 읽어서 초기 필터 설정 (대시보드 카드에서 넘어올 때)
  const urlMonth = searchParams.get('month')
  const urlYear = searchParams.get('year')
- const initialMonth = urlMonth ? urlMonth : urlYear ? `year:${urlYear}` : thisYearMonth
+ // 거래처 필터 들어오면 기간은 전체로 (그 거래처의 모든 계산서 보기 위해)
+ const initialMonth = urlMonth ? urlMonth : urlYear ? `year:${urlYear}` : urlVendor ? 'all' : thisYearMonth
  const [monthFilter, setMonthFilter] = useState<string>(initialMonth)
  const [search, setSearch] = useState('')
  const bulk = useBulkSelect()

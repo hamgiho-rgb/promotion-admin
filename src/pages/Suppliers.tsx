@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
@@ -56,6 +57,7 @@ interface SupplierStats {
 }
 
 export default function Suppliers() {
+  const navigate = useNavigate()
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [statsMap, setStatsMap] = useState<Map<string, SupplierStats>>(new Map())
   const [loading, setLoading] = useState(true)
@@ -217,7 +219,16 @@ export default function Suppliers() {
             <Empty icon="🏭" title="등록된 공급처가 없어요" action={<Button onClick={() => { setEditing(null); setDrawerOpen(true) }}>＋ 등록</Button>} />
           ) : <Empty icon="🔍" title="검색 결과가 없습니다" />
         ) : tab === 'all' ? (
-          <AllTable vendors={filtered} statsMap={statsMap} onEdit={(v) => { setEditing(v); setDrawerOpen(true) }} onDelete={handleDelete} onShowMaterials={setMaterialDrawer} onMerge={setMergingFrom} />
+          <AllTable
+            vendors={filtered}
+            statsMap={statsMap}
+            onEdit={(v) => { setEditing(v); setDrawerOpen(true) }}
+            onDelete={handleDelete}
+            onShowMaterials={setMaterialDrawer}
+            onMerge={setMergingFrom}
+            onGoToInvoices={(v) => navigate(`/supplier-invoices?supplier=${v.id}`)}
+            onGoToPayments={(v) => navigate(`/payments?supplier=${v.id}`)}
+          />
         ) : tab === 'contacts' ? (
           <ContactsTable vendors={filtered} />
         ) : tab === 'materials' ? (
@@ -459,8 +470,8 @@ function TabBtn({ children, active, onClick }: { children: React.ReactNode; acti
 }
 
 /* ───── 탭 1: 전체 정보 ───── */
-function AllTable({ vendors, statsMap, onEdit, onDelete, onShowMaterials, onMerge }: {
-  vendors: Vendor[]; statsMap: Map<string, SupplierStats>; onEdit: (v: Vendor) => void; onDelete: (v: Vendor) => void; onShowMaterials: (v: Vendor) => void; onMerge: (v: Vendor) => void
+function AllTable({ vendors, statsMap, onEdit, onDelete, onShowMaterials, onMerge, onGoToInvoices, onGoToPayments }: {
+  vendors: Vendor[]; statsMap: Map<string, SupplierStats>; onEdit: (v: Vendor) => void; onDelete: (v: Vendor) => void; onShowMaterials: (v: Vendor) => void; onMerge: (v: Vendor) => void; onGoToInvoices: (v: Vendor) => void; onGoToPayments: (v: Vendor) => void
 }) {
   return (
     <table className="w-full text-[13px]">
@@ -492,6 +503,8 @@ function AllTable({ vendors, statsMap, onEdit, onDelete, onShowMaterials, onMerg
                 <button onClick={() => onShowMaterials(v)} className="hover:underline">{stats?.materialCount || 0}건</button>
               </td>
               <td className="px-4 py-3 text-right whitespace-nowrap">
+                <Button size="sm" variant="ghost" onClick={() => onGoToInvoices(v)} title="이 공급처의 계산서 페이지로" className="text-blue-600 hover:bg-blue-50">📄 계산서 →</Button>
+                <Button size="sm" variant="ghost" onClick={() => onGoToPayments(v)} title="이 공급처의 정산 페이지로" className="text-amber-600 hover:bg-amber-50">💰 정산 →</Button>
                 <Button size="sm" variant="ghost" onClick={() => onMerge(v)} title="다른 공급처와 합치기" className="text-violet-600 hover:bg-violet-50 hover:text-violet-700">🔗 합치기</Button>
                 <Button size="sm" variant="ghost" onClick={() => onEdit(v)}>수정</Button>
                 <Button size="sm" variant="ghost" onClick={() => onDelete(v)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
