@@ -72,7 +72,23 @@ export default function Fabric() {
 
  return (
  <div>
- <PageHeader title="실 입고 내역" description="실(원단) 입고량을 금액·재단 수량으로 환산해 벌당 단가를 자동 계산합니다." />
+   {/* 그라데이션 헤더 — 원단 (인디고/시안 톤) */}
+   <div className="mb-5 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-indigo-700 via-blue-800 to-zinc-900 text-white rounded-b-3xl">
+     <div className="flex items-end justify-between flex-wrap gap-3">
+       <div>
+         <p className="text-[11px] uppercase tracking-wider text-indigo-200 mb-1">FABRIC</p>
+         <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">🧵 실 입고 내역</h1>
+         <p className="text-[12px] text-indigo-100/80 mt-1">실(원단) 입고량을 금액·재단 수량으로 환산해 벌당 단가를 자동 계산</p>
+       </div>
+       <div className="text-right">
+         <div className="text-[10px] uppercase tracking-wider text-indigo-200 mb-1">총 입고액</div>
+         <div className="text-[26px] sm:text-[32px] font-bold tabular-nums">₩{totalAmount.toLocaleString()}</div>
+         {totalCut > 0 && (
+           <div className="text-[12px] text-indigo-100/80 mt-0.5">벌당 평균 ₩{Math.round(avgCostPerUnit).toLocaleString()}</div>
+         )}
+       </div>
+     </div>
+   </div>
 
  {loading ? (
  <div className="bg-white border border-zinc-200 rounded-2xl p-16 text-center text-[12px] text-zinc-400">불러오는 중...</div>

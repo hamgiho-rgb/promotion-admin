@@ -228,15 +228,24 @@ export default function SupplierPayments() {
 
   return (
     <div>
-      <PageHeader
-        title="공급처 정산"
-        description="입고 수량 × 원가계산서 = 공급처별 지급해야 할 금액 자동 계산"
-        action={
-          <Button variant="secondary" onClick={handleExport} disabled={supplierTotals.length === 0}>
-            📥 엑셀 내보내기
-          </Button>
-        }
-      />
+      {/* 그라데이션 헤더 — 공급처 정산 (호박색·갈색 톤) */}
+      <div className="mb-5 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-amber-700 via-orange-800 to-zinc-900 text-white rounded-b-3xl">
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-amber-200 mb-1">SUPPLIER PAYMENTS</p>
+            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">🏭 공급처 정산</h1>
+            <p className="text-[12px] text-amber-100/80 mt-1">입고 수량 × 원가계산서 = 공급처별 지급해야 할 금액 자동 계산</p>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-wider text-amber-200 mb-1">총 정산액</div>
+            <div className="text-[26px] sm:text-[32px] font-bold tabular-nums">₩{grandTotal.toLocaleString()}</div>
+            <div className="text-[12px] text-amber-100/80 mt-0.5">{totalSuppliers}곳 공급처</div>
+          </div>
+        </div>
+        <div className="mt-4">
+          <Button variant="secondary" onClick={handleExport} disabled={supplierTotals.length === 0} className="bg-white/10 hover:bg-white/20 text-white border-white/20">📥 엑셀 내보내기</Button>
+        </div>
+      </div>
 
       {/* 기간 + 카테고리 필터 */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-4 mb-4">
@@ -283,10 +292,10 @@ export default function SupplierPayments() {
 
       {/* 통계 카드 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
-        <StatCard label="정산 합계" value={`₩${grandTotal.toLocaleString()}`} hint={`${supplierTotals.reduce((s, x) => s + x.totalQty, 0).toLocaleString()}장 기준`} />
-        <StatCard label="대상 공급처" value={`${totalSuppliers}곳`} hint={categoryFilter === 'all' ? '전체 분류' : categoryFilter} />
-        <StatCard label="입고 건수" value={`${totalIncomingCount}건`} hint="선택 기간 내" />
-        <StatCard label="원단" value={`₩${(byCategoryTotal.get('원단') || 0).toLocaleString()}`} hint="요척 검증용" />
+        <StatCard label="정산 합계" value={`₩${grandTotal.toLocaleString()}`} hint={`${supplierTotals.reduce((s, x) => s + x.totalQty, 0).toLocaleString()}장 기준`} accent="amber" />
+        <StatCard label="대상 공급처" value={`${totalSuppliers}곳`} hint={categoryFilter === 'all' ? '전체 분류' : categoryFilter} accent="violet" />
+        <StatCard label="입고 건수" value={`${totalIncomingCount}건`} hint="선택 기간 내" accent="blue" />
+        <StatCard label="원단" value={`₩${(byCategoryTotal.get('원단') || 0).toLocaleString()}`} hint="요척 검증용" accent="green" />
       </div>
 
       <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
@@ -347,12 +356,19 @@ function categoryColor(cat: string): 'blue' | 'amber' | 'violet' | 'rose' | 'gre
     : 'zinc'
 }
 
-function StatCard({ label, value, hint }: { label: string; value: string; hint?: string }) {
+function StatCard({ label, value, hint, accent }: { label: string; value: string; hint?: string; accent?: 'blue' | 'green' | 'amber' | 'violet' }) {
+  const palettes = {
+    blue:   { bg: 'from-blue-50 to-white border-blue-100',       text: 'text-blue-900' },
+    green:  { bg: 'from-emerald-50 to-white border-emerald-100', text: 'text-emerald-900' },
+    amber:  { bg: 'from-amber-50 to-white border-amber-100',     text: 'text-amber-900' },
+    violet: { bg: 'from-violet-50 to-white border-violet-100',   text: 'text-violet-900' },
+  }
+  const p = accent ? palettes[accent] : null
   return (
-    <div className="bg-white border border-zinc-200 rounded-2xl p-4">
+    <div className={`border rounded-2xl p-4 ${p ? `bg-gradient-to-br ${p.bg}` : 'bg-white border-zinc-200'}`}>
       <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
-      <p className="text-[20px] font-bold text-zinc-900 mt-1 tabular-nums">{value}</p>
-      {hint && <p className="text-[11px] text-zinc-400 mt-0.5">{hint}</p>}
+      <p className={`text-[20px] font-bold mt-1 tabular-nums ${p?.text || 'text-zinc-900'}`}>{value}</p>
+      {hint && <p className="text-[11px] text-zinc-500 mt-1">{hint}</p>}
     </div>
   )
 }

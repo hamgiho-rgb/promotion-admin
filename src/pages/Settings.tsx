@@ -57,10 +57,21 @@ export default function Settings() {
 
   return (
     <div>
-      <PageHeader
-        title="설정"
-        description="현재 로그인한 사용자 정보를 보고 PIN 또는 사용자 목록을 관리합니다."
-      />
+      {/* 그라데이션 헤더 — 설정 (잿빛/네이비) */}
+      <div className="mb-5 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-slate-700 via-slate-800 to-zinc-900 text-white rounded-b-3xl">
+        <div className="flex items-end justify-between flex-wrap gap-3">
+          <div>
+            <p className="text-[11px] uppercase tracking-wider text-slate-300 mb-1">SETTINGS</p>
+            <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">⚙️ 사용자 · 설정</h1>
+            <p className="text-[12px] text-slate-200/80 mt-1">현재 로그인한 사용자 정보와 PIN, 사용자 목록을 관리합니다</p>
+          </div>
+          <div className="text-right">
+            <div className="text-[10px] uppercase tracking-wider text-slate-300 mb-1">현재 로그인</div>
+            <div className="text-[16px] font-bold">{me.name}</div>
+            <div className="text-[12px] text-slate-200/80 mt-0.5">{me.role === 'admin' ? '👑 관리자' : '👤 직원'}</div>
+          </div>
+        </div>
+      </div>
 
       {/* 내 정보 */}
       <div className="bg-white border border-zinc-200 rounded-2xl p-5 mb-6">

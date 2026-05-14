@@ -646,10 +646,12 @@ export default function DataImport() {
 
   return (
     <div>
-      <PageHeader
-        title="엑셀 가져오기 (구버전)"
-        description="이 페이지는 통합 업로드 도구입니다. 평소엔 각 페이지의 '📥 엑셀 일괄 등록' 버튼을 쓰세요."
-      />
+      {/* 그라데이션 헤더 — 가져오기 (청록 톤) */}
+      <div className="mb-5 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-teal-700 via-cyan-800 to-zinc-900 text-white rounded-b-3xl">
+        <p className="text-[11px] uppercase tracking-wider text-teal-200 mb-1">DATA IMPORT</p>
+        <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">📥 엑셀 가져오기</h1>
+        <p className="text-[12px] text-teal-100/80 mt-1">통합 업로드 도구 · 평소엔 각 페이지의 [📥 엑셀 일괄 등록] 버튼을 추천</p>
+      </div>
 
       <div className="mb-4 p-4 rounded-xl bg-blue-50 border border-blue-200 text-[12px] text-blue-900">
         💡 <strong>각 페이지에서 바로 등록 가능</strong> — 새 방식 추천!
