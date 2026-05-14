@@ -5,6 +5,55 @@ import * as XLSX from 'xlsx'
  * 청운상사/마요네즈 등 다중시트·동적 사이즈 컬럼 자동 감지
  * ───────────────────────────────────────────── */
 
+/**
+ * 엑셀 셀 값(문자열/숫자/Date) → "YYYY-MM-DD" 변환 — timezone-proof.
+ *
+ * SheetJS는 환경/옵션에 따라 엑셀 날짜 셀을 다르게 변환함:
+ * - cellDates:true 시 Date 객체 (UTC 자정 또는 로컬 자정 — 버전마다 다름)
+ * - cellDates:false 시 시리얼 숫자
+ * - 사용자가 텍스트로 입력했으면 문자열
+ *
+ * 따라서 모든 케이스에 대응하고, Date 객체에서는 "자정인 쪽"의 날짜를 사용.
+ */
+export function excelCellToISODate(cell: any): string | null {
+  if (cell == null) return null
+
+  // 1) 문자열 — "2026-05-08" 형태 그대로
+  if (typeof cell === 'string') {
+    const m = cell.match(/(\d{4})[-./](\d{1,2})[-./](\d{1,2})/)
+    if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`
+    return null
+  }
+
+  // 2) 숫자 — 엑셀 시리얼 (1900-01-01 기준 일수)
+  if (typeof cell === 'number') {
+    const parsed = XLSX.SSF.parse_date_code(cell)
+    if (parsed) return `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`
+    return null
+  }
+
+  // 3) Date 객체 — UTC 자정인지 로컬 자정인지 판별해서 그 쪽 날짜 사용
+  if (cell instanceof Date) {
+    const isUTCMidnight = cell.getUTCHours() === 0 && cell.getUTCMinutes() === 0
+    const isLocalMidnight = cell.getHours() === 0 && cell.getMinutes() === 0
+    if (isUTCMidnight) {
+      // SheetJS가 UTC 자정으로 만듦 → UTC 메서드로 꺼냄
+      return `${cell.getUTCFullYear()}-${String(cell.getUTCMonth() + 1).padStart(2, '0')}-${String(cell.getUTCDate()).padStart(2, '0')}`
+    }
+    if (isLocalMidnight) {
+      // 로컬 자정 → 로컬 메서드
+      return `${cell.getFullYear()}-${String(cell.getMonth() + 1).padStart(2, '0')}-${String(cell.getDate()).padStart(2, '0')}`
+    }
+    // 둘 다 아니면 — 가장 가까운 자정 쪽으로
+    const utcOffsetMin = cell.getTimezoneOffset()
+    if (Math.abs(utcOffsetMin * 60 * 1000 - cell.getTime() % (24 * 60 * 60 * 1000)) < 12 * 60 * 60 * 1000) {
+      return `${cell.getFullYear()}-${String(cell.getMonth() + 1).padStart(2, '0')}-${String(cell.getDate()).padStart(2, '0')}`
+    }
+    return `${cell.getUTCFullYear()}-${String(cell.getUTCMonth() + 1).padStart(2, '0')}-${String(cell.getUTCDate()).padStart(2, '0')}`
+  }
+  return null
+}
+
 export interface AWIncomingItem {
   product_code: string
   product_name: string
@@ -140,21 +189,7 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
 
     let delivery_date: string | null = null
     if (colDate >= 0) {
-      const d = row[colDate]
-      if (d instanceof Date) {
-        // SheetJS의 cellDates:true는 엑셀 셀 날짜를 UTC 자정의 Date로 변환함.
-        // → UTC 메서드로 꺼내야 엑셀에 적힌 그 날짜가 그대로 나옴.
-        // (로컬 메서드로 꺼내면 한국시간(UTC+9) 변환 후 자정 전이라 전날로 보일 수 있음)
-        const y = d.getUTCFullYear()
-        const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-        const day = String(d.getUTCDate()).padStart(2, '0')
-        delivery_date = `${y}-${m}-${day}`
-      } else if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) delivery_date = d.slice(0, 10)
-      else if (typeof d === 'number') {
-        // 엑셀 시리얼 숫자 — XLSX.SSF로 변환 (timezone 무관)
-        const parsed = XLSX.SSF.parse_date_code(d)
-        if (parsed) delivery_date = `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`
-      }
+      delivery_date = excelCellToISODate(row[colDate])
     }
 
     let carton_no: number | null = null

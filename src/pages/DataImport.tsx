@@ -3,6 +3,7 @@ import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Button, Select, PageHeader, Empty, Badge } from '@/components/ui'
 import { toKRDate } from '@/lib/datetime'
+import { excelCellToISODate } from '@/lib/awImport'
 
 type EntityType = 'customers' | 'suppliers' | 'products' | 'incoming' | 'invoices'
 
@@ -208,14 +209,7 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
 
     let delivery_date: string | null = null
     if (colDate >= 0) {
-      const d = row[colDate]
-      if (d instanceof Date) {
-        // SheetJS는 UTC 자정의 Date 객체를 만들기 때문에 UTC 메서드로 꺼내야 정확
-        const y = d.getUTCFullYear()
-        const m = String(d.getUTCMonth() + 1).padStart(2, '0')
-        const day = String(d.getUTCDate()).padStart(2, '0')
-        delivery_date = `${y}-${m}-${day}`
-      } else if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) delivery_date = d.slice(0, 10)
+      delivery_date = excelCellToISODate(row[colDate])
     }
 
     let carton_no: number | null = null
@@ -903,12 +897,7 @@ function cleanStr(v: any) {
 
 function normalizeDate(v: any): string | null {
   if (!v) return null
-  if (v instanceof Date) {
-    const y = v.getUTCFullYear()
-    const m = String(v.getUTCMonth() + 1).padStart(2, '0')
-    const day = String(v.getUTCDate()).padStart(2, '0')
-    return `${y}-${m}-${day}`
-  }
+  if (v instanceof Date) return excelCellToISODate(v)
   if (typeof v === 'number') {
     const d = XLSX.SSF.parse_date_code(v)
     if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`
