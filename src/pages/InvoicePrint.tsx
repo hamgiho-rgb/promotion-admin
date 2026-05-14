@@ -114,20 +114,22 @@ export default function InvoicePrint() {
               <tr className="bg-zinc-100 border-b-2 border-zinc-800">
                 <th className="px-2 py-2 border-r border-zinc-300 w-24">날짜</th>
                 <th className="px-2 py-2 border-r border-zinc-300">품명</th>
-                <th className="px-2 py-2 border-r border-zinc-300 w-20">칼라</th>
-                <th className="px-2 py-2 border-r border-zinc-300 w-16">수량</th>
+                <th className="px-2 py-2 border-r border-zinc-300 w-16">칼라</th>
+                <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>
+                <th className="px-2 py-2 border-r border-zinc-300 w-14">수량</th>
                 <th className="px-2 py-2 border-r border-zinc-300 w-20">단가</th>
                 <th className="px-2 py-2 w-24">금액</th>
               </tr>
             </thead>
             <tbody>
               {items.length === 0 ? (
-                <tr><td colSpan={6} className="text-center py-6 text-zinc-400">등록된 거래 라인이 없습니다.</td></tr>
+                <tr><td colSpan={7} className="text-center py-6 text-zinc-400">등록된 거래 라인이 없습니다.</td></tr>
               ) : items.map(it => (
                 <tr key={it.id} className={`border-b border-zinc-200 ${it.is_return ? 'bg-rose-50/50' : ''}`}>
                   <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{it.line_date || ''}</td>
                   <td className="px-2 py-1.5 border-r border-zinc-200">{it.product_name || ''}</td>
                   <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{it.color || ''}</td>
+                  <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{(it as any).size || ''}</td>
                   <td className={`px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums ${it.is_return ? 'text-rose-700' : ''}`}>
                     {Number(it.quantity).toLocaleString()}
                   </td>
@@ -145,6 +147,7 @@ export default function InvoicePrint() {
                   <td className="px-2 py-1.5 border-r border-zinc-200"></td>
                   <td className="px-2 py-1.5 border-r border-zinc-200"></td>
                   <td className="px-2 py-1.5 border-r border-zinc-200"></td>
+                  <td className="px-2 py-1.5 border-r border-zinc-200"></td>
                   <td className="px-2 py-1.5"></td>
                 </tr>
               ))}
@@ -153,8 +156,9 @@ export default function InvoicePrint() {
 
           {/* 하단: 계좌 + 합계 */}
           <div className="grid grid-cols-2 gap-6 mt-4">
-            <div className="border border-zinc-300 p-3 text-[11px] whitespace-pre-line">
-              {invoice.bank_info || ''}
+            <div className="border border-zinc-300 p-3 text-[11px]">
+              <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1.5">입금 계좌</div>
+              <div className="leading-relaxed text-zinc-800 break-all">{invoice.bank_info || '—'}</div>
             </div>
             <div className="border-2 border-zinc-800">
               <div className="grid grid-cols-[1fr_auto] gap-x-4 px-3 py-1.5 border-b border-zinc-300 text-[12px]">

@@ -146,6 +146,11 @@ alter table invoices
 create index if not exists idx_invoices_incoming on invoices(incoming_id) where incoming_id is not null;
 
 -- ────────────────────────────────────────
+-- 7-1. 계산서 라인에 size 컬럼 (사이즈별 라인 분리용)
+-- ────────────────────────────────────────
+alter table invoice_items add column if not exists size text;
+
+-- ────────────────────────────────────────
 -- 8. 휴지통 (soft delete) — 모든 주요 테이블에 deleted_at
 -- ────────────────────────────────────────
 alter table vendors           add column if not exists deleted_at timestamptz;

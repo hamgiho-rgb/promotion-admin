@@ -387,6 +387,7 @@ interface LocalLine {
  product_id: string | null
  product_name: string
  color: string | null
+ size: string | null
  quantity: number
  unit_price: number
 }
@@ -443,6 +444,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  product_id: it.product_id,
  product_name: it.product_name || '',
  color: it.color,
+ size: it.size || null,
  quantity: Number(it.quantity || 0),
  unit_price: Number(it.unit_price || 0),
  }))
@@ -560,6 +562,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  product_id: null,
  product_name: '',
  color: '',
+ size: null,
  quantity: 1,
  unit_price: 0,
  }])
@@ -690,6 +693,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  product_id: l.product_id,
  product_name: l.product_name || null,
  color: l.color || null,
+ size: l.size || null,
  quantity: Number(l.quantity || 0),
  unit_price: Number(l.unit_price || 0),
  sort_order: i,
@@ -825,6 +829,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  <th className="px-2 py-2 text-left w-28">날짜</th>
  <th className="px-2 py-2 text-left">상품</th>
  <th className="px-2 py-2 text-left w-20">컬러</th>
+ <th className="px-2 py-2 text-left w-16">사이즈</th>
  <th className="px-2 py-2 text-right w-20">수량</th>
  <th className="px-2 py-2 text-right w-24">단가</th>
  <th className="px-2 py-2 text-right w-28">금액</th>
@@ -852,6 +857,9 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  </td>
  <td className="px-2 py-1">
  <Input value={l.color || ''} onChange={e => updateLine(l.tempId, { color: e.target.value })} className="text-[11px] px-1.5 py-1" />
+ </td>
+ <td className="px-2 py-1">
+ <Input value={l.size || ''} onChange={e => updateLine(l.tempId, { size: e.target.value })} className="text-[11px] px-1.5 py-1 text-center" placeholder="—" />
  </td>
  <td className="px-2 py-1">
  <Input type="number" value={l.quantity} onChange={e => updateLine(l.tempId, { quantity: Number(e.target.value) })} className="text-[11px] px-1.5 py-1 text-right tabular-nums" />

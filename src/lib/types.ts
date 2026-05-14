@@ -119,6 +119,7 @@ export interface InvoiceItem {
   product_id: string | null
   product_name: string | null
   color: string | null
+  size: string | null                // 사이즈 (예: "110", "M") — 입고에서 자동 발행 시 사이즈별 라인 분리용
   quantity: number                   // 음수 = 반품
   unit_price: number
   amount: number                     // 자동: quantity * unit_price

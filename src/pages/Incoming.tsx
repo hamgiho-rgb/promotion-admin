@@ -15,6 +15,7 @@ interface IncomingStats {
  cartons: number
  productCount: number
  deliveryDates: string[]   // 이 입고에 들어있는 모든 납기일 (정렬, 중복 제거)
+ sizeBreakdown: Record<string, number>  // 사이즈별 합계 — 펼침 표시용
 }
 
 /** 합계/소계 또는 노트성 행 판별 — DB에 들어가 있어도 통계·계산서 변환에서 자동 제외 */
@@ -65,20 +66,26 @@ export default function IncomingPage() {
  const ids = iData.map(i => i.id)
  const { data: items } = await supabase
  .from('incoming_items')
- .select('incoming_id, total_quantity, product_id, product_code, product_name, delivery_date')
+ .select('incoming_id, total_quantity, product_id, product_code, product_name, delivery_date, sizes')
  .in('incoming_id', ids)
 
  const map = new Map<string, IncomingStats & { productSet: Set<string>; dateSet: Set<string> }>()
  ;(items ?? []).forEach(it => {
  if (isSummaryItem(it)) return  // 합계/노트 행 제외 — 통계 두 배 방지
  if (!map.has(it.incoming_id)) {
- map.set(it.incoming_id, { totalQuantity: 0, cartons: 0, productCount: 0, deliveryDates: [], productSet: new Set(), dateSet: new Set() })
+ map.set(it.incoming_id, { totalQuantity: 0, cartons: 0, productCount: 0, deliveryDates: [], sizeBreakdown: {}, productSet: new Set(), dateSet: new Set() })
  }
  const s = map.get(it.incoming_id)!
  s.totalQuantity += Number(it.total_quantity || 0)
  s.cartons += 1
  if (it.product_id) s.productSet.add(it.product_id)
  if (it.delivery_date) s.dateSet.add(it.delivery_date)
+ // 사이즈별 합계
+ const sizes = (it as any).sizes || {}
+ Object.entries(sizes).forEach(([sz, n]) => {
+   const num = Number(n) || 0
+   if (num > 0) s.sizeBreakdown[sz] = (s.sizeBreakdown[sz] || 0) + num
+ })
  })
  const cleanMap = new Map<string, IncomingStats>()
  map.forEach((v, k) => cleanMap.set(k, {
@@ -86,6 +93,7 @@ export default function IncomingPage() {
  cartons: v.cartons,
  productCount: v.productSet.size,
  deliveryDates: Array.from(v.dateSet).sort(),
+ sizeBreakdown: v.sizeBreakdown,
  }))
  setStatsMap(cleanMap)
  } else {
@@ -126,16 +134,16 @@ export default function IncomingPage() {
    if (items.length === 0) return alert('입고 라인이 없어요.')
 
    // ① 이 입고에서 이미 발행된 계산서들의 라인을 모두 모아서 "이미 발행된 키" 집합 만들기
-   //    키 = `${line_date}__${product_id || product_name}` — 같은 날짜+상품은 중복으로 봄
+   //    키 = `${line_date}__${product}__${size}` — 같은 날짜+상품+사이즈는 중복
    const { data: existingInvs } = await supabase
      .from('invoices').select('id').eq('incoming_id', inc.id).is('deleted_at', null)
    const existingInvIds = (existingInvs ?? []).map((x: any) => x.id)
    const alreadyKeys = new Set<string>()
    if (existingInvIds.length > 0) {
      const { data: existingItems } = await supabase
-       .from('invoice_items').select('line_date, product_id, product_name').in('invoice_id', existingInvIds)
+       .from('invoice_items').select('line_date, product_id, product_name, size').in('invoice_id', existingInvIds)
      ;(existingItems ?? []).forEach((it: any) => {
-       const k = `${it.line_date || ''}__${it.product_id || it.product_name || ''}`
+       const k = `${it.line_date || ''}__${it.product_id || it.product_name || ''}__${it.size || ''}`
        alreadyKeys.add(k)
      })
    }
@@ -159,38 +167,56 @@ export default function IncomingPage() {
      if (m) fallbackDate = `${m[1]}-${m[2].padStart(2, '0')}-01`
    }
 
-   // ③ 라인 변환 — (납기일, 상품) 별로 합산
+   // ③ 라인 변환 — (납기일 × 상품 × 사이즈) 별로 합산
+   //    sizes JSON ({"110":5,"120":3}) 풀어서 사이즈별 라인 생성
    const lineMap = new Map<string, any>()
    items.forEach((it: any) => {
      const dKey = it.delivery_date || fallbackDate
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
-     const k = `${dKey}__${pKey}`
      let prod = it.product_id ? byId.get(it.product_id) : null
      if (!prod) {
        const codeKey = (it.product_code || '').toString().trim().toLowerCase()
        const nameKey = (it.product_name || '').toString().trim().toLowerCase()
        prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
      }
-     const existing = lineMap.get(k)
-     const qty = Number(it.total_quantity || 0)
-     if (existing) {
-       existing.quantity += qty
+     const baseLine = {
+       line_date: dKey,
+       product_id: prod?.id || it.product_id || null,
+       product_name: prod?.name || it.product_name || it.product_code || '',
+       color: prod?.color || null,
+       unit_price: Number(prod?.selling_price ?? 0),
+     }
+
+     const sizes = it.sizes || {}
+     const sizeEntries = Object.entries(sizes).filter(([_, n]) => Number(n) > 0)
+
+     if (sizeEntries.length === 0) {
+       // 사이즈 정보 없으면 합계로 1라인
+       const k = `${dKey}__${pKey}__`
+       const existing = lineMap.get(k)
+       const qty = Number(it.total_quantity || 0)
+       if (existing) existing.quantity += qty
+       else lineMap.set(k, { ...baseLine, size: null, quantity: qty })
      } else {
-       lineMap.set(k, {
-         line_date: dKey,
-         product_id: prod?.id || it.product_id || null,
-         product_name: prod?.name || it.product_name || it.product_code || '',
-         color: prod?.color || null,
-         quantity: qty,
-         unit_price: Number(prod?.selling_price ?? 0),
+       // 사이즈별로 별도 라인
+       sizeEntries.forEach(([sz, n]) => {
+         const k = `${dKey}__${pKey}__${sz}`
+         const existing = lineMap.get(k)
+         const qty = Number(n)
+         if (existing) existing.quantity += qty
+         else lineMap.set(k, { ...baseLine, size: sz, quantity: qty })
        })
      }
    })
-   const allLines = Array.from(lineMap.values()).sort((a, b) => a.line_date.localeCompare(b.line_date))
+   const allLines = Array.from(lineMap.values()).sort((a, b) => {
+     if (a.line_date !== b.line_date) return a.line_date.localeCompare(b.line_date)
+     if (a.product_name !== b.product_name) return a.product_name.localeCompare(b.product_name)
+     return (a.size || '').localeCompare(b.size || '')
+   })
 
    // ④ 이미 발행된 라인 제외 → 신규만 남김
    const newLines = allLines.filter(l => {
-     const k = `${l.line_date}__${l.product_id || l.product_name}`
+     const k = `${l.line_date}__${l.product_id || l.product_name}__${l.size || ''}`
      return !alreadyKeys.has(k)
    })
    const skippedCount = allLines.length - newLines.length
@@ -436,6 +462,17 @@ export default function IncomingPage() {
                    </td>
                    <td className="px-4 py-2.5 text-right font-semibold tabular-nums">
                      {stats ? `${stats.totalQuantity.toLocaleString()}장` : '—'}
+                     {stats && Object.keys(stats.sizeBreakdown).length > 0 && (
+                       <div className="mt-1 flex flex-wrap gap-0.5 justify-end">
+                         {Object.entries(stats.sizeBreakdown)
+                           .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+                           .map(([sz, n]) => (
+                             <span key={sz} className="inline-block text-[9px] px-1 py-0.5 rounded bg-zinc-100 text-zinc-600 font-normal">
+                               {sz}:{n}
+                             </span>
+                           ))}
+                       </div>
+                     )}
                    </td>
                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{stats?.cartons || 0}</td>
                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{stats?.productCount || 0}</td>
