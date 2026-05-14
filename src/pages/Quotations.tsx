@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Quotation, QuotationItem, QuotationStatus } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
@@ -30,9 +30,11 @@ export default function QuotationsPage() {
  const [loading, setLoading] = useState(true)
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Quotation | null>(null)
+ const [searchParams] = useSearchParams()
  const [statusFilter, setStatusFilter] = useState<string>('all')
  const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
- const [monthFilter, setMonthFilter] = useState<string>(thisYearMonth)
+ const urlMonth = searchParams.get('month')
+ const [monthFilter, setMonthFilter] = useState<string>(urlMonth || thisYearMonth)
  const [search, setSearch] = useState('')
  const bulk = useBulkSelect()
 

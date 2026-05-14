@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Invoice, Incoming } from '@/lib/types'
 import { Drawer, Badge, Empty } from '@/components/ui'
+import { getTrashCounts } from '@/lib/trash'
 
 interface MonthlyData {
   month: string
@@ -14,21 +15,51 @@ interface MonthlyData {
 
 type SummaryType = 'this_month_revenue' | 'last_month_revenue' | 'ytd_revenue' | 'this_month_incoming' | null
 
+interface AlertStats {
+  acceptedNoDeposit: { count: number; amount: number }   // 수락된 견적인데 계약금 미수령
+  paidDepositNoInvoice: { count: number; amount: number } // 계약금 받았는데 계산서 미발행
+  productsNoPrice: number                                 // 판매가 미입력 상품
+  productsNoCost: number                                  // 원가 미입력 상품
+  trashTotal: number                                      // 휴지통 총 건수
+  thisMonthQuotations: number
+  thisMonthIncomings: number
+  thisMonthInvoices: number
+}
+
 export default function Dashboard() {
   const navigate = useNavigate()
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [incomings, setIncomings] = useState<Incoming[]>([])
   const [incomingItemsMap, setIncomingItemsMap] = useState<Map<string, number>>(new Map())
   const [vendorMap, setVendorMap] = useState<Map<string, string>>(new Map())
+  const [alerts, setAlerts] = useState<AlertStats | null>(null)
   const [loading, setLoading] = useState(true)
   const [summary, setSummary] = useState<SummaryType>(null)
 
   async function load() {
     setLoading(true)
-    const [{ data: invData }, { data: incData }, { data: vData }] = await Promise.all([
+    const today = new Date()
+    const thisYearMonth = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}`
+    const thisYearMonthDot = `${today.getFullYear()}.${String(today.getMonth() + 1).padStart(2, '0')}`
+
+    const [
+      { data: invData },
+      { data: incData },
+      { data: vData },
+      { data: quotData },
+      { data: prodData },
+      { data: costData },
+      trash,
+    ] = await Promise.all([
       supabase.from('invoices').select('*').is('deleted_at', null).order('issue_date', { ascending: false }),
       supabase.from('incoming').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
       supabase.from('vendors').select('id, name').is('deleted_at', null),
+      // 알림용 — 수락 견적의 계약금 상태 + 계산서 연결 상태
+      supabase.from('quotations').select('id, status, deposit_received, deposit_amount, total, issue_date').is('deleted_at', null),
+      // 알림용 — 판매가/원가 미입력
+      supabase.from('products').select('id, selling_price').is('deleted_at', null),
+      supabase.from('cost_items').select('product_id'),
+      getTrashCounts(),
     ])
     setInvoices(invData ?? [])
     setIncomings(incData ?? [])
@@ -49,6 +80,34 @@ export default function Dashboard() {
       })
       setIncomingItemsMap(map)
     }
+
+    // 알림 통계 계산
+    const accepted = (quotData ?? []).filter((q: any) => q.status === 'accepted')
+    const acceptedNoDeposit = accepted.filter((q: any) => !q.deposit_received)
+    const invQuotIds = new Set((invData ?? []).map((i: any) => i.quotation_id).filter(Boolean))
+    const paidDepNoInvoice = accepted.filter((q: any) => q.deposit_received && !invQuotIds.has(q.id))
+    const productsNoPrice = (prodData ?? []).filter((p: any) => !Number(p.selling_price || 0)).length
+    const prodsWithCost = new Set((costData ?? []).map((c: any) => c.product_id).filter(Boolean))
+    const productsNoCost = (prodData ?? []).filter((p: any) => !prodsWithCost.has(p.id)).length
+    const trashTotal = Object.values(trash || {}).reduce((s: number, n: any) => s + n, 0)
+
+    setAlerts({
+      acceptedNoDeposit: {
+        count: acceptedNoDeposit.length,
+        amount: acceptedNoDeposit.reduce((s: number, q: any) => s + Number(q.deposit_amount || 0), 0),
+      },
+      paidDepositNoInvoice: {
+        count: paidDepNoInvoice.length,
+        amount: paidDepNoInvoice.reduce((s: number, q: any) => s + Number(q.total || 0), 0),
+      },
+      productsNoPrice,
+      productsNoCost,
+      trashTotal,
+      thisMonthQuotations: (quotData ?? []).filter((q: any) => q.issue_date?.startsWith(thisYearMonth)).length,
+      thisMonthIncomings: (incData ?? []).filter((i: any) => i.period === thisYearMonthDot).length,
+      thisMonthInvoices: (invData ?? []).filter((i: any) => i.issue_date?.startsWith(thisYearMonth)).length,
+    })
+
     setLoading(false)
   }
 
@@ -153,6 +212,83 @@ export default function Dashboard() {
           accent="amber"
         />
       </div>
+
+      {/* 알림 위젯 — 즉시 처리해야 할 일들 */}
+      {alerts && (alerts.acceptedNoDeposit.count + alerts.paidDepositNoInvoice.count + alerts.productsNoPrice + alerts.productsNoCost + alerts.trashTotal > 0) && (
+        <div className="mb-6">
+          <h2 className="text-[13px] font-semibold text-zinc-700 mb-2 flex items-center gap-2">
+            🔔 확인이 필요한 항목
+          </h2>
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {alerts.acceptedNoDeposit.count > 0 && (
+              <AlertCard
+                icon="💰"
+                tone="amber"
+                title="계약금 미수령"
+                value={`₩${alerts.acceptedNoDeposit.amount.toLocaleString()}`}
+                hint={`수락된 견적 ${alerts.acceptedNoDeposit.count}건`}
+                onClick={() => navigate('/quotations')}
+              />
+            )}
+            {alerts.paidDepositNoInvoice.count > 0 && (
+              <AlertCard
+                icon="📄"
+                tone="blue"
+                title="계약금 받음 · 계산서 미발행"
+                value={`${alerts.paidDepositNoInvoice.count}건`}
+                hint={`총 견적액 ₩${alerts.paidDepositNoInvoice.amount.toLocaleString()}`}
+                onClick={() => navigate('/quotations')}
+              />
+            )}
+            {alerts.productsNoPrice > 0 && (
+              <AlertCard
+                icon="⚠"
+                tone="rose"
+                title="판매가 미입력 상품"
+                value={`${alerts.productsNoPrice}개`}
+                hint="계산서 단가 자동 매칭 안 됨"
+                onClick={() => navigate('/products')}
+              />
+            )}
+            {alerts.productsNoCost > 0 && (
+              <AlertCard
+                icon="🧮"
+                tone="violet"
+                title="원가 미입력 상품"
+                value={`${alerts.productsNoCost}개`}
+                hint="마진 계산 안 됨"
+                onClick={() => navigate('/products')}
+              />
+            )}
+            {alerts.trashTotal > 0 && (
+              <AlertCard
+                icon="🗑️"
+                tone="zinc"
+                title="휴지통"
+                value={`${alerts.trashTotal}건`}
+                hint="30일 후 자동 영구삭제"
+                onClick={() => navigate('/trash')}
+              />
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* 이번 달 작업 진행 — 견적 → 입고 → 계산서 단계별 */}
+      {alerts && (alerts.thisMonthQuotations + alerts.thisMonthIncomings + alerts.thisMonthInvoices > 0) && (
+        <div className="mb-6 bg-white border border-zinc-200 rounded-2xl p-4">
+          <h2 className="text-[13px] font-semibold text-zinc-700 mb-3 flex items-center gap-2">
+            📈 이번 달 작업 흐름
+          </h2>
+          <div className="flex items-center gap-3 overflow-x-auto">
+            <FlowStep label="견적서" count={alerts.thisMonthQuotations} icon="📑" tone="blue" onClick={() => navigate('/quotations?month=' + thisMonth)} />
+            <FlowArrow />
+            <FlowStep label="입고" count={alerts.thisMonthIncomings} icon="📦" tone="amber" onClick={() => navigate('/incoming?month=' + thisMonthInc)} />
+            <FlowArrow />
+            <FlowStep label="계산서" count={alerts.thisMonthInvoices} icon="🧾" tone="green" onClick={() => navigate('/invoices?month=' + thisMonth)} />
+          </div>
+        </div>
+      )}
 
       {/* 월별 매출 차트 + 표 */}
       <div className="bg-white border border-zinc-200 rounded-2xl mb-6 overflow-hidden">
@@ -260,6 +396,50 @@ function StatCard({ label, value, hint, delta, onClick, accent }: { label: strin
     </div>
   )
   return onClick ? <button onClick={onClick} className="block w-full">{inner}</button> : inner
+}
+
+function AlertCard({ icon, title, value, hint, tone, onClick }: { icon: string; title: string; value: string; hint?: string; tone: 'amber'|'rose'|'blue'|'violet'|'zinc'; onClick: () => void }) {
+  const palettes = {
+    amber:  { border: 'border-amber-200',  bg: 'from-amber-50 to-white',   text: 'text-amber-900',   hover: 'hover:border-amber-400 hover:from-amber-100' },
+    rose:   { border: 'border-rose-200',   bg: 'from-rose-50 to-white',    text: 'text-rose-900',    hover: 'hover:border-rose-400 hover:from-rose-100' },
+    blue:   { border: 'border-blue-200',   bg: 'from-blue-50 to-white',    text: 'text-blue-900',    hover: 'hover:border-blue-400 hover:from-blue-100' },
+    violet: { border: 'border-violet-200', bg: 'from-violet-50 to-white',  text: 'text-violet-900',  hover: 'hover:border-violet-400 hover:from-violet-100' },
+    zinc:   { border: 'border-zinc-200',   bg: 'from-zinc-50 to-white',    text: 'text-zinc-900',    hover: 'hover:border-zinc-400 hover:from-zinc-100' },
+  }
+  const p = palettes[tone]
+  return (
+    <button onClick={onClick} className={`text-left bg-gradient-to-br ${p.bg} border ${p.border} ${p.hover} rounded-2xl p-4 transition-colors w-full`}>
+      <div className="flex items-start justify-between mb-1">
+        <span className="text-xl">{icon}</span>
+        <span className="text-zinc-400 text-xs">→</span>
+      </div>
+      <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600">{title}</p>
+      <p className={`text-[20px] font-bold tabular-nums mt-0.5 ${p.text}`}>{value}</p>
+      {hint && <p className="text-[11px] text-zinc-500 mt-0.5">{hint}</p>}
+    </button>
+  )
+}
+
+function FlowStep({ label, count, icon, tone, onClick }: { label: string; count: number; icon: string; tone: 'blue'|'amber'|'green'; onClick: () => void }) {
+  const palettes = {
+    blue:  { bg: 'bg-blue-50 hover:bg-blue-100',     text: 'text-blue-700',     border: 'border-blue-200' },
+    amber: { bg: 'bg-amber-50 hover:bg-amber-100',   text: 'text-amber-700',    border: 'border-amber-200' },
+    green: { bg: 'bg-emerald-50 hover:bg-emerald-100', text: 'text-emerald-700', border: 'border-emerald-200' },
+  }
+  const p = palettes[tone]
+  return (
+    <button onClick={onClick} className={`flex-shrink-0 ${p.bg} border ${p.border} rounded-xl px-4 py-3 transition-colors text-left min-w-[120px]`}>
+      <div className="flex items-center gap-2">
+        <span className="text-xl">{icon}</span>
+        <span className={`text-[11px] font-semibold uppercase tracking-wider ${p.text}`}>{label}</span>
+      </div>
+      <p className={`text-[20px] font-bold mt-1 tabular-nums ${p.text}`}>{count}<span className="text-[11px] ml-1 opacity-70">건</span></p>
+    </button>
+  )
+}
+
+function FlowArrow() {
+  return <span className="text-zinc-300 text-xl flex-shrink-0">→</span>
 }
 
 function QuickAction({ icon, label, desc, onClick, tint }: { icon: string; label: string; desc: string; onClick: () => void; tint?: 'blue'|'green'|'amber'|'violet' }) {
