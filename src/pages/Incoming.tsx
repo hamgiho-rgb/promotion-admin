@@ -13,14 +13,18 @@ interface IncomingStats {
  totalQuantity: number
  cartons: number
  productCount: number
+ deliveryDates: string[]   // 이 입고에 들어있는 모든 납기일 (정렬, 중복 제거)
 }
 
-/** 합계/소계/총계 행 판별 — DB에 들어가 있어도 통계·계산서 변환에서 자동 제외 */
+/** 합계/소계 또는 노트성 행 판별 — DB에 들어가 있어도 통계·계산서 변환에서 자동 제외 */
 const SUMMARY_PATTERN = /^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i
+const NOTE_PATTERN = /(위\s*품목|상기\s*품목|이상.*(출고|입고).*함|위\s*내역)/i
 function isSummaryItem(it: { product_code?: string | null; product_name?: string | null }) {
  const code = (it.product_code || '').toString().trim()
  const name = (it.product_name || '').toString().trim()
- return SUMMARY_PATTERN.test(code) || SUMMARY_PATTERN.test(name)
+ if (SUMMARY_PATTERN.test(code) || SUMMARY_PATTERN.test(name)) return true
+ if (NOTE_PATTERN.test(code) || NOTE_PATTERN.test(name)) return true
+ return false
 }
 
 export default function IncomingPage() {
@@ -60,25 +64,27 @@ export default function IncomingPage() {
  const ids = iData.map(i => i.id)
  const { data: items } = await supabase
  .from('incoming_items')
- .select('incoming_id, total_quantity, product_id, product_code, product_name')
+ .select('incoming_id, total_quantity, product_id, product_code, product_name, delivery_date')
  .in('incoming_id', ids)
 
- const map = new Map<string, IncomingStats & { productSet: Set<string> }>()
+ const map = new Map<string, IncomingStats & { productSet: Set<string>; dateSet: Set<string> }>()
  ;(items ?? []).forEach(it => {
- if (isSummaryItem(it)) return  // 합계 행 제외 — 통계 두 배 방지
+ if (isSummaryItem(it)) return  // 합계/노트 행 제외 — 통계 두 배 방지
  if (!map.has(it.incoming_id)) {
- map.set(it.incoming_id, { totalQuantity: 0, cartons: 0, productCount: 0, productSet: new Set() })
+ map.set(it.incoming_id, { totalQuantity: 0, cartons: 0, productCount: 0, deliveryDates: [], productSet: new Set(), dateSet: new Set() })
  }
  const s = map.get(it.incoming_id)!
  s.totalQuantity += Number(it.total_quantity || 0)
  s.cartons += 1
  if (it.product_id) s.productSet.add(it.product_id)
+ if (it.delivery_date) s.dateSet.add(it.delivery_date)
  })
  const cleanMap = new Map<string, IncomingStats>()
  map.forEach((v, k) => cleanMap.set(k, {
  totalQuantity: v.totalQuantity,
  cartons: v.cartons,
  productCount: v.productSet.size,
+ deliveryDates: Array.from(v.dateSet).sort(),
  }))
  setStatsMap(cleanMap)
  } else {
@@ -392,6 +398,7 @@ export default function IncomingPage() {
              <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
                <th className="pl-4 pr-2 py-2.5 w-10"></th>
                <th className="px-4 py-2.5">거래처</th>
+               <th className="px-4 py-2.5">입고 일자</th>
                <th className="px-4 py-2.5 text-right">총 수량</th>
                <th className="px-4 py-2.5 text-right">박스</th>
                <th className="px-4 py-2.5 text-right">상품</th>
@@ -402,6 +409,7 @@ export default function IncomingPage() {
            <tbody>
              {monthList.map(i => {
                const stats = statsMap.get(i.id)
+               const dates = stats?.deliveryDates || []
                return (
                  <tr key={i.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${bulk.has(i.id) ? 'bg-zinc-50' : ''}`}>
                    <td className="pl-4 pr-2 py-2.5">
@@ -411,6 +419,19 @@ export default function IncomingPage() {
                      <button onClick={() => { setEditing(i); setDrawerOpen(true) }} className="hover:underline">
                        <Badge color="green">{vendorName(i.vendor_id)}</Badge>
                      </button>
+                   </td>
+                   <td className="px-4 py-2.5">
+                     {dates.length === 0 ? (
+                       <span className="text-zinc-300 text-[11px]">—</span>
+                     ) : (
+                       <div className="flex flex-wrap gap-1">
+                         {dates.map(d => (
+                           <span key={d} className="inline-block text-[10px] px-1.5 py-0.5 rounded bg-blue-50 text-blue-700 border border-blue-100 tabular-nums">
+                             {d.slice(5).replace('-', '/')}
+                           </span>
+                         ))}
+                       </div>
+                     )}
                    </td>
                    <td className="px-4 py-2.5 text-right font-semibold tabular-nums">
                      {stats ? `${stats.totalQuantity.toLocaleString()}장` : '—'}

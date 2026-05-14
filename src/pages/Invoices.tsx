@@ -493,11 +493,13 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
 
  const map = new Map<string, Map<string, ImportableItem>>()
  const summaryRe = /^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i
+ const noteRe = /(위\s*품목|상기\s*품목|이상.*(출고|입고).*함|위\s*내역)/i
  ;(rawItems ?? []).forEach((it: any) => {
- // 합계/소계 행 안전 필터
+ // 합계/소계/노트 행 안전 필터
  const code = (it.product_code || '').toString().trim()
  const name = (it.product_name || '').toString().trim()
  if (summaryRe.test(code) || summaryRe.test(name)) return
+ if (noteRe.test(code) || noteRe.test(name)) return
  const itemDate = it.delivery_date || incomingDateFallback.get(it.incoming_id) || ''
  if (!itemDate) return   // 그래도 정말 아무 날짜도 없으면 스킵
  const dKey = itemDate

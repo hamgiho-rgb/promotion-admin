@@ -141,8 +141,13 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
     let delivery_date: string | null = null
     if (colDate >= 0) {
       const d = row[colDate]
-      if (d instanceof Date) delivery_date = d.toISOString().slice(0, 10)
-      else if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) delivery_date = d.slice(0, 10)
+      if (d instanceof Date) {
+        // ⚠ toISOString() 쓰면 UTC 변환되며 한국시간 기준 하루 당겨짐 — 로컬 컴포넌트로 직접 조립
+        const y = d.getFullYear()
+        const m = String(d.getMonth() + 1).padStart(2, '0')
+        const day = String(d.getDate()).padStart(2, '0')
+        delivery_date = `${y}-${m}-${day}`
+      } else if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) delivery_date = d.slice(0, 10)
     }
 
     let carton_no: number | null = null
