@@ -142,12 +142,19 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
     if (colDate >= 0) {
       const d = row[colDate]
       if (d instanceof Date) {
-        // ⚠ toISOString() 쓰면 UTC 변환되며 한국시간 기준 하루 당겨짐 — 로컬 컴포넌트로 직접 조립
-        const y = d.getFullYear()
-        const m = String(d.getMonth() + 1).padStart(2, '0')
-        const day = String(d.getDate()).padStart(2, '0')
+        // SheetJS의 cellDates:true는 엑셀 셀 날짜를 UTC 자정의 Date로 변환함.
+        // → UTC 메서드로 꺼내야 엑셀에 적힌 그 날짜가 그대로 나옴.
+        // (로컬 메서드로 꺼내면 한국시간(UTC+9) 변환 후 자정 전이라 전날로 보일 수 있음)
+        const y = d.getUTCFullYear()
+        const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+        const day = String(d.getUTCDate()).padStart(2, '0')
         delivery_date = `${y}-${m}-${day}`
       } else if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) delivery_date = d.slice(0, 10)
+      else if (typeof d === 'number') {
+        // 엑셀 시리얼 숫자 — XLSX.SSF로 변환 (timezone 무관)
+        const parsed = XLSX.SSF.parse_date_code(d)
+        if (parsed) delivery_date = `${parsed.y}-${String(parsed.m).padStart(2, '0')}-${String(parsed.d).padStart(2, '0')}`
+      }
     }
 
     let carton_no: number | null = null
