@@ -18,6 +18,7 @@ import DataImport from '@/pages/DataImport'
 import Settings from '@/pages/Settings'
 import SupplierPayments from '@/pages/SupplierPayments'
 import SupplierInvoices from '@/pages/SupplierInvoices'
+import Trash from '@/pages/Trash'
 
 export default function App() {
   return (
@@ -46,6 +47,7 @@ export default function App() {
             <Route path="payments"   element={<SupplierPayments />} />
             <Route path="supplier-invoices" element={<SupplierInvoices />} />
             <Route path="import"     element={<DataImport />} />
+            <Route path="trash"      element={<Trash />} />
             <Route path="settings"   element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

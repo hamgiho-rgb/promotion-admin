@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import type { Vendor, SupplierInvoice, SupplierInvoiceItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import { isSupplierInvoiceFormat, parseSupplierInvoiceWorkbook } from '@/lib/supplierInvoiceImport'
+import { softDelete } from '@/lib/trash'
 
 /* ────────────────────────────────────────────────
  * 공급처 계산서 (공장에서 받은 청구서)
@@ -27,7 +28,7 @@ export default function SupplierInvoices() {
     setLoading(true)
     const [{ data: sData }, { data: iData }, { data: itData }] = await Promise.all([
       supabase.from('vendors').select('*').eq('vendor_type', 'supplier').order('name'),
-      supabase.from('supplier_invoices').select('*').order('period', { ascending: false }).order('issue_date', { ascending: false }),
+      supabase.from('supplier_invoices').select('*').is('deleted_at', null).order('period', { ascending: false }).order('issue_date', { ascending: false }),
       supabase.from('supplier_invoice_items').select('*').order('sort_order'),
     ])
     setSuppliers((sData ?? []) as Vendor[])
@@ -95,8 +96,8 @@ export default function SupplierInvoices() {
   const lastMonthTotal = invoices.filter(i => i.period === lastMonth).reduce((s, i) => s + Number(i.total || 0), 0)
 
   async function handleDelete(inv: SupplierInvoice) {
-    if (!confirm(`${supplierName(inv.supplier_id)} ${inv.period || ''} 계산서를 삭제할까요?`)) return
-    const { error } = await supabase.from('supplier_invoices').delete().eq('id', inv.id)
+    if (!confirm(`${supplierName(inv.supplier_id)} ${inv.period || ''} 계산서를 휴지통으로 옮길까요?\n30일 안에 복구 가능.`)) return
+    const { error } = await softDelete('supplier_invoices', inv.id)
     if (error) return alert('삭제 실패: ' + error.message)
     load()
   }

@@ -6,6 +6,7 @@ import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textare
 import { exportInvoiceReceipt, exportInvoiceReceiptsMulti } from '@/lib/exportXlsx'
 import InvoiceImportButton from '@/components/InvoiceImportButton'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
+import { softDelete, softDeleteMany } from '@/lib/trash'
 
 /* ──────────────────────────────────────────────────────────
  * 계산서/영수증 페이지
@@ -37,7 +38,7 @@ export default function InvoicesPage() {
  setLoading(true)
  const [{ data: vData }, { data: iData }] = await Promise.all([
  supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
- supabase.from('invoices').select('*').order('issue_date', { ascending: false }),
+ supabase.from('invoices').select('*').is('deleted_at', null).order('issue_date', { ascending: false }),
  ])
  setVendors(vData ?? [])
  setList(iData ?? [])
@@ -62,8 +63,8 @@ export default function InvoicesPage() {
  }
 
  async function handleDelete(i: Invoice) {
- if (!confirm(`${i.issue_date} 계산서를 삭제할까요?`)) return
- const { error } = await supabase.from('invoices').delete().eq('id', i.id)
+ if (!confirm(`${i.issue_date} 계산서를 휴지통으로 옮길까요?\n30일 안에 복구 가능.`)) return
+ const { error } = await softDelete('invoices', i.id)
  if (error) return alert(error.message)
  load()
  }
@@ -71,8 +72,8 @@ export default function InvoicesPage() {
  async function handleBulkDelete() {
    const ids = Array.from(bulk.selected)
    if (ids.length === 0) return
-   if (!confirm(`선택한 ${ids.length}건의 계산서를 삭제할까요?\n(라인 항목까지 함께 삭제됩니다. 되돌릴 수 없어요.)`)) return
-   const { error } = await supabase.from('invoices').delete().in('id', ids)
+   if (!confirm(`선택한 ${ids.length}건의 계산서를 휴지통으로 옮길까요?\n30일 안에 복구 가능.`)) return
+   const { error } = await softDeleteMany('invoices', ids)
    if (error) return alert(error.message)
    bulk.clear()
    load()

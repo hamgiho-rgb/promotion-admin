@@ -5,6 +5,7 @@ import type { Vendor, Product, Quotation, QuotationItem, QuotationStatus } from 
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
+import { softDelete, softDeleteMany } from '@/lib/trash'
 
 const STATUS_LABEL: Record<QuotationStatus, string> = {
  draft: '작성중',
@@ -39,7 +40,7 @@ export default function QuotationsPage() {
  setLoading(true)
  const [{ data: vData }, { data: qData }, { data: invs }] = await Promise.all([
  supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
- supabase.from('quotations').select('*').order('issue_date', { ascending: false }),
+ supabase.from('quotations').select('*').is('deleted_at', null).order('issue_date', { ascending: false }),
  supabase.from('invoices').select('id, quotation_id').not('quotation_id', 'is', null),
  ])
  setVendors(vData ?? [])
@@ -110,8 +111,8 @@ export default function QuotationsPage() {
  }
 
  async function handleDelete(q: Quotation) {
- if (!confirm('이 견적서를 삭제할까요?')) return
- const { error } = await supabase.from('quotations').delete().eq('id', q.id)
+ if (!confirm('이 견적서를 휴지통으로 옮길까요?\n30일 안에 복구 가능.')) return
+ const { error } = await softDelete('quotations', q.id)
  if (error) return alert(error.message)
  load()
  }
@@ -119,8 +120,8 @@ export default function QuotationsPage() {
  async function handleBulkDelete() {
    const ids = Array.from(bulk.selected)
    if (ids.length === 0) return
-   if (!confirm(`선택한 ${ids.length}건의 견적서를 삭제할까요?\n(라인 항목까지 함께 삭제됩니다. 되돌릴 수 없어요.)`)) return
-   const { error } = await supabase.from('quotations').delete().in('id', ids)
+   if (!confirm(`선택한 ${ids.length}건의 견적서를 휴지통으로 옮길까요?\n30일 안에 복구 가능.`)) return
+   const { error } = await softDeleteMany('quotations', ids)
    if (error) return alert(error.message)
    bulk.clear()
    load()

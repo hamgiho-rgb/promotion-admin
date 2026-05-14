@@ -61,6 +61,7 @@ const menu = [
   ]},
   { section: '도구', items: [
     { to: '/import', label: '엑셀 가져오기', icon: ICONS.import },
+    { to: '/trash', label: '휴지통', icon: 'M3 6h18M8 6V4a2 2 0 012-2h4a2 2 0 012 2v2M19 6v14a2 2 0 01-2 2H7a2 2 0 01-2-2V6M10 11v6M14 11v6' },
     { to: '/settings', label: '사용자 · 설정', icon: ICONS.settings },
   ]},
 ]

@@ -5,6 +5,7 @@ import type { Product, Vendor, ProductMargin } from '@/lib/types'
 import { Button, Input, Select, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import CustomerPicker from '@/components/CustomerPicker'
 import FlatImportButton from '@/components/FlatImportButton'
+import { softDelete } from '@/lib/trash'
 
 export default function Products() {
  const navigate = useNavigate()
@@ -21,7 +22,7 @@ export default function Products() {
  async function load() {
  setLoading(true)
  const [{ data: pData }, { data: vData }, { data: mData }] = await Promise.all([
- supabase.from('products').select('*').order('created_at', { ascending: false }),
+ supabase.from('products').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
  supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
  supabase.from('product_margin').select('*'),
  ])
@@ -40,8 +41,8 @@ export default function Products() {
  }
 
  async function handleDelete(p: Product) {
- if (!confirm(`'${p.code}' 상품을 삭제할까요?`)) return
- const { error } = await supabase.from('products').delete().eq('id', p.id)
+ if (!confirm(`'${p.code}' 상품을 휴지통으로 옮길까요?\n30일 안에 복구 가능.`)) return
+ const { error } = await softDelete('products', p.id)
  if (error) { alert('삭제 실패: ' + error.message); return }
  load()
  }

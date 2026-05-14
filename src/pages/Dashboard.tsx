@@ -26,9 +26,9 @@ export default function Dashboard() {
   async function load() {
     setLoading(true)
     const [{ data: invData }, { data: incData }, { data: vData }] = await Promise.all([
-      supabase.from('invoices').select('*').order('issue_date', { ascending: false }),
-      supabase.from('incoming').select('*').order('created_at', { ascending: false }),
-      supabase.from('vendors').select('id, name'),
+      supabase.from('invoices').select('*').is('deleted_at', null).order('issue_date', { ascending: false }),
+      supabase.from('incoming').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
+      supabase.from('vendors').select('id, name').is('deleted_at', null),
     ])
     setInvoices(invData ?? [])
     setIncomings(incData ?? [])

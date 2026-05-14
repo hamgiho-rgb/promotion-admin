@@ -5,6 +5,7 @@ import type { Vendor, Product, Incoming, IncomingItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
 import { exportMultiSheet, rowsToSheet } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
+import { softDelete, softDeleteMany } from '@/lib/trash'
 import IncomingImportButton from '@/components/IncomingImportButton'
 
 /* ───── 입고내역서별 집계 ───── */
@@ -35,7 +36,7 @@ export default function IncomingPage() {
  setLoading(true)
  const [{ data: vData }, { data: iData }] = await Promise.all([
  supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
- supabase.from('incoming').select('*').order('created_at', { ascending: false }),
+ supabase.from('incoming').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
  ])
  setVendors(vData ?? [])
  setList(iData ?? [])
@@ -74,8 +75,8 @@ export default function IncomingPage() {
  useEffect(() => { load() }, [])
 
  async function handleDelete(i: Incoming) {
- if (!confirm('이 입고내역서 전체를 삭제할까요? (하위 입고 라인도 모두 삭제됨)')) return
- const { error } = await supabase.from('incoming').delete().eq('id', i.id)
+ if (!confirm('이 입고내역서를 휴지통으로 옮길까요?\n30일 안에 복구 가능.')) return
+ const { error } = await softDelete('incoming', i.id)
  if (error) return alert('삭제 실패: ' + error.message)
  load()
  }
@@ -83,8 +84,8 @@ export default function IncomingPage() {
  async function handleBulkDelete() {
    const ids = Array.from(bulk.selected)
    if (ids.length === 0) return
-   if (!confirm(`선택한 ${ids.length}건의 입고내역서를 삭제할까요?\n(하위 입고 라인도 모두 삭제됩니다. 되돌릴 수 없어요.)`)) return
-   const { error } = await supabase.from('incoming').delete().in('id', ids)
+   if (!confirm(`선택한 ${ids.length}건의 입고내역서를 휴지통으로 옮길까요?\n30일 안에 복구 가능.`)) return
+   const { error } = await softDeleteMany('incoming', ids)
    if (error) return alert('삭제 실패: ' + error.message)
    bulk.clear()
    load()

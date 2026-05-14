@@ -36,8 +36,8 @@ export default function MarginReport() {
  async function load() {
  setLoading(true)
  const [{ data: vData }, { data: invData }, { data: itemData }, { data: marginData }] = await Promise.all([
- supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
- supabase.from('invoices').select('id, vendor_id, issue_date'),
+ supabase.from('vendors').select('*').eq('vendor_type', 'customer').is('deleted_at', null).order('name'),
+ supabase.from('invoices').select('id, vendor_id, issue_date').is('deleted_at', null),
  supabase.from('invoice_items').select('*'),
  supabase.from('product_margin').select('*'),
  ])

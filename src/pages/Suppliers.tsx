@@ -4,6 +4,7 @@ import type { Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import FlatImportButton from '@/components/FlatImportButton'
+import { softDelete } from '@/lib/trash'
 
 /* ───── 공급처 (원단·부자재·공임을 사오는 곳) ───── */
 const CATEGORY_OPTIONS = [
@@ -66,7 +67,7 @@ export default function Suppliers() {
   async function load() {
     setLoading(true)
     const [{ data: vData }, { data: cData }] = await Promise.all([
-      supabase.from('vendors').select('*').eq('vendor_type', 'supplier').order('name'),
+      supabase.from('vendors').select('*').eq('vendor_type', 'supplier').is('deleted_at', null).order('name'),
       supabase.from('cost_items').select('supplier_id, product_id'),
     ])
     setVendors(vData ?? [])
@@ -89,8 +90,8 @@ export default function Suppliers() {
   useEffect(() => { load() }, [])
 
   async function handleDelete(v: Vendor) {
-    if (!confirm(`'${v.name}' 공급처를 삭제할까요?`)) return
-    const { error } = await supabase.from('vendors').delete().eq('id', v.id)
+    if (!confirm(`'${v.name}' 공급처를 휴지통으로 옮길까요?\n30일 안에 복구 가능.`)) return
+    const { error } = await softDelete('vendors', v.id)
     if (error) return alert('삭제 실패: ' + error.message)
     load()
   }

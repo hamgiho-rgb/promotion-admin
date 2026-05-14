@@ -5,6 +5,7 @@ import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from
 import SizePicker from '@/components/SizePicker'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import FlatImportButton from '@/components/FlatImportButton'
+import { softDelete } from '@/lib/trash'
 
 /* 메모에서 "품목: A, B, C" 파싱 */
 function parseItems(memo: string | null | undefined): string[] {
@@ -49,9 +50,9 @@ export default function Customers() {
     const thisYear = String(today.getFullYear())
 
     const [{ data: vData }, { data: invData }, { data: prodData }] = await Promise.all([
-      supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
-      supabase.from('invoices').select('vendor_id, issue_date, total'),
-      supabase.from('products').select('vendor_id'),
+      supabase.from('vendors').select('*').eq('vendor_type', 'customer').is('deleted_at', null).order('name'),
+      supabase.from('invoices').select('vendor_id, issue_date, total').is('deleted_at', null),
+      supabase.from('products').select('vendor_id').is('deleted_at', null),
     ])
     setVendors(vData ?? [])
 
@@ -83,8 +84,8 @@ export default function Customers() {
   useEffect(() => { load() }, [])
 
   async function handleDelete(v: Vendor) {
-    if (!confirm(`'${v.name}' 거래처를 삭제할까요?\n연결된 상품·입고·계산서도 영향받을 수 있어요.`)) return
-    const { error } = await supabase.from('vendors').delete().eq('id', v.id)
+    if (!confirm(`'${v.name}' 거래처를 휴지통으로 옮길까요?\n30일 안에 휴지통에서 복구할 수 있어요.`)) return
+    const { error } = await softDelete('vendors', v.id)
     if (error) return alert('삭제 실패: ' + error.message)
     load()
   }
