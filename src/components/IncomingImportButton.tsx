@@ -67,6 +67,9 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
       const productByCode = new Map<string, string>()
       ;(productsData ?? []).forEach(p => { if (p.code) productByCode.set(p.code, p.id) })
 
+      let mergedCount = 0  // 같은 거래처+기간 입고에 라인 추가한 건수
+      let skippedCount = 0 // 이미 동일 라인 있어서 스킵한 건수
+
       for (const receipt of receipts) {
         let vendor = findVendorByFuzzyName(receipt.vendor_name, [...vendorsList, ...cachedNewVendors], 'customer')
         if (!vendor) {
@@ -87,37 +90,74 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
           await supabase.from('vendors').update({ size_system: receipt.sizeLabels }).eq('id', vendor.id)
         }
 
-        const { data: incData, error: incErr } = await supabase.from('incoming').insert({
-          vendor_id: vendor.id,
-          period: receipt.period,
-          producer: 'AW',
-        }).select().single()
-        if (incErr) {
-          fail += receipt.items.length
-          errors.push(`${receipt.vendor_name} ${receipt.sheetName}: ${incErr.message}`)
-          continue
+        // ★ 중복 방지: 같은 (vendor + period) 입고가 이미 있으면 → 그 입고에 라인만 추가
+        let incomingId: string
+        let isExisting = false
+        const { data: existingIncs } = await supabase.from('incoming')
+          .select('id').eq('vendor_id', vendor.id).eq('period', receipt.period || '')
+          .is('deleted_at', null).limit(1)
+        if (existingIncs && existingIncs.length > 0) {
+          incomingId = existingIncs[0].id
+          isExisting = true
+        } else {
+          const { data: incData, error: incErr } = await supabase.from('incoming').insert({
+            vendor_id: vendor.id,
+            period: receipt.period,
+            producer: 'AW',
+          }).select().single()
+          if (incErr) {
+            fail += receipt.items.length
+            errors.push(`${receipt.vendor_name} ${receipt.sheetName}: ${incErr.message}`)
+            continue
+          }
+          incomingId = incData.id
         }
 
-        const payload = receipt.items.map(it => ({
-          incoming_id: incData.id,
-          product_id: productByCode.get(it.product_code) || null,
-          product_code: it.product_code || null,
-          product_name: it.product_name || null,
-          sizes: it.sizes,
-          total_quantity: it.total,
-          delivery_date: it.delivery_date,
-          carton_no: it.carton_no,
-        }))
-        if (payload.length > 0) {
-          const { error: itErr } = await supabase.from('incoming_items').insert(payload)
+        // 기존 라인 키 (delivery_date + product_code + carton_no) 모음 — 중복 라인 스킵용
+        let existingLineKeys = new Set<string>()
+        if (isExisting) {
+          const { data: existingItems } = await supabase.from('incoming_items')
+            .select('delivery_date, product_code, carton_no').eq('incoming_id', incomingId)
+          ;(existingItems ?? []).forEach((it: any) => {
+            const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}`
+            existingLineKeys.add(k)
+          })
+        }
+
+        const newPayload = []
+        for (const it of receipt.items) {
+          const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}`
+          if (existingLineKeys.has(k)) {
+            skippedCount++
+            continue
+          }
+          newPayload.push({
+            incoming_id: incomingId,
+            product_id: productByCode.get(it.product_code) || null,
+            product_code: it.product_code || null,
+            product_name: it.product_name || null,
+            sizes: it.sizes,
+            total_quantity: it.total,
+            delivery_date: it.delivery_date,
+            carton_no: it.carton_no,
+          })
+        }
+        if (newPayload.length > 0) {
+          const { error: itErr } = await supabase.from('incoming_items').insert(newPayload)
           if (itErr) {
-            fail += payload.length
+            fail += newPayload.length
             errors.push(`${receipt.vendor_name} ${receipt.sheetName}: 라인 ${itErr.message}`)
           } else {
-            ok += payload.length
+            ok += newPayload.length
+            if (isExisting) mergedCount++
           }
+        } else if (isExisting) {
+          // 새 라인 0개 = 완전 동일한 파일을 다시 올린 것
+          mergedCount++
         }
       }
+      // 안내문 추가
+      if (mergedCount > 0) errors.unshift(`✓ ${mergedCount}개 입고는 기존 입고에 병합됨 (새 라인만 추가, 중복 스킵 ${skippedCount}건)`)
       setResult({ ok, fail, errors: errors.slice(0, 10) })
       if (ok > 0) onImported()
     } catch (err: any) {
