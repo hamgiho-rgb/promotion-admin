@@ -109,50 +109,59 @@ export default function InvoicePrint() {
           </div>
 
           {/* 거래 라인 표 */}
-          <table className="w-full text-[12px] border-2 border-zinc-800 mt-3">
-            <thead>
-              <tr className="bg-zinc-100 border-b-2 border-zinc-800">
-                <th className="px-2 py-2 border-r border-zinc-300 w-24">날짜</th>
-                <th className="px-2 py-2 border-r border-zinc-300">품명</th>
-                <th className="px-2 py-2 border-r border-zinc-300 w-16">칼라</th>
-                <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>
-                <th className="px-2 py-2 border-r border-zinc-300 w-14">수량</th>
-                <th className="px-2 py-2 border-r border-zinc-300 w-20">단가</th>
-                <th className="px-2 py-2 w-24">금액</th>
-              </tr>
-            </thead>
-            <tbody>
-              {items.length === 0 ? (
-                <tr><td colSpan={7} className="text-center py-6 text-zinc-400">등록된 거래 라인이 없습니다.</td></tr>
-              ) : items.map(it => (
-                <tr key={it.id} className={`border-b border-zinc-200 ${it.is_return ? 'bg-rose-50/50' : ''}`}>
-                  <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{it.line_date || ''}</td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200">{it.product_name || ''}</td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{it.color || ''}</td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{(it as any).size || ''}</td>
-                  <td className={`px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums ${it.is_return ? 'text-rose-700' : ''}`}>
-                    {Number(it.quantity).toLocaleString()}
-                  </td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums">{Number(it.unit_price).toLocaleString()}</td>
-                  <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${it.is_return ? 'text-rose-700' : ''}`}>
-                    {Number(it.amount).toLocaleString()}
-                  </td>
-                </tr>
-              ))}
-              {/* 빈 줄들 (양식 미관용) */}
-              {items.length > 0 && items.length < 10 && Array.from({ length: 10 - items.length }).map((_, i) => (
-                <tr key={`empty-${i}`} className="border-b border-zinc-200">
-                  <td className="px-2 py-1.5 border-r border-zinc-200 h-6">&nbsp;</td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                  <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                  <td className="px-2 py-1.5"></td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+          {(() => {
+            // 컬럼 자동 표시/숨김 — 모든 라인이 비어있는 컬럼은 숨김
+            const showColor = items.some(it => (it.color || '').trim() !== '')
+            const showSize = items.some(it => ((it as any).size || '').toString().trim() !== '')
+            const colCount = 4 + (showColor ? 1 : 0) + (showSize ? 1 : 0)  // 날짜+품명+수량+단가+금액 = 5? 다시계산
+            const totalCols = 5 + (showColor ? 1 : 0) + (showSize ? 1 : 0)  // 날짜/품명/수량/단가/금액 = 5
+            return (
+              <table className="w-full text-[12px] border-2 border-zinc-800 mt-3">
+                <thead>
+                  <tr className="bg-zinc-100 border-b-2 border-zinc-800">
+                    <th className="px-2 py-2 border-r border-zinc-300 w-24">날짜</th>
+                    <th className="px-2 py-2 border-r border-zinc-300">품명</th>
+                    {showColor && <th className="px-2 py-2 border-r border-zinc-300 w-16">칼라</th>}
+                    {showSize && <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>}
+                    <th className="px-2 py-2 border-r border-zinc-300 w-14">수량</th>
+                    <th className="px-2 py-2 border-r border-zinc-300 w-20">단가</th>
+                    <th className="px-2 py-2 w-24">금액</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {items.length === 0 ? (
+                    <tr><td colSpan={totalCols} className="text-center py-6 text-zinc-400">등록된 거래 라인이 없습니다.</td></tr>
+                  ) : items.map(it => (
+                    <tr key={it.id} className={`border-b border-zinc-200 ${it.is_return ? 'bg-rose-50/50' : ''}`}>
+                      <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{it.line_date || ''}</td>
+                      <td className="px-2 py-1.5 border-r border-zinc-200">{it.product_name || ''}</td>
+                      {showColor && <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{it.color || ''}</td>}
+                      {showSize && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{(it as any).size || ''}</td>}
+                      <td className={`px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums ${it.is_return ? 'text-rose-700' : ''}`}>
+                        {Number(it.quantity).toLocaleString()}
+                      </td>
+                      <td className="px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums">{Number(it.unit_price).toLocaleString()}</td>
+                      <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${it.is_return ? 'text-rose-700' : ''}`}>
+                        {Number(it.amount).toLocaleString()}
+                      </td>
+                    </tr>
+                  ))}
+                  {/* 빈 줄들 (양식 미관용) */}
+                  {items.length > 0 && items.length < 10 && Array.from({ length: 10 - items.length }).map((_, i) => (
+                    <tr key={`empty-${i}`} className="border-b border-zinc-200">
+                      <td className="px-2 py-1.5 border-r border-zinc-200 h-6">&nbsp;</td>
+                      <td className="px-2 py-1.5 border-r border-zinc-200"></td>
+                      {showColor && <td className="px-2 py-1.5 border-r border-zinc-200"></td>}
+                      {showSize && <td className="px-2 py-1.5 border-r border-zinc-200"></td>}
+                      <td className="px-2 py-1.5 border-r border-zinc-200"></td>
+                      <td className="px-2 py-1.5 border-r border-zinc-200"></td>
+                      <td className="px-2 py-1.5"></td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            )
+          })()}
 
           {/* 하단: 계좌 + 합계 */}
           <div className="grid grid-cols-2 gap-6 mt-4">

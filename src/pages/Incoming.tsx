@@ -485,6 +485,7 @@ export default function IncomingPage() {
                          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 mr-1"
                        >📄 발행됨</button>
                      )}
+                     <Button size="sm" variant="ghost" onClick={() => navigate(`/incoming/${i.id}/print`)} title="입고내역서 출력">🖨️ 출력</Button>
                      <Button
                        size="sm"
                        variant="ghost"
