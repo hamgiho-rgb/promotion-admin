@@ -103,6 +103,8 @@ export interface Invoice {
   total: number
   // 견적서 연결 + 선납액 (계약금)
   quotation_id: string | null
+  // 입고내역서 연결 — 입고 → 계산서 자동 발행 시 추적
+  incoming_id: string | null
   deposit_amount: number   // 견적서에서 받은 계약금 (계산서 발행 시 차감 → 청구 잔금 = total - deposit_amount)
   notes: string | null
   created_at: string

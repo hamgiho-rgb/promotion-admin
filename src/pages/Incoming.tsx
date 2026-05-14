@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useSearchParams } from 'react-router-dom'
+import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Incoming, IncomingItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
@@ -16,9 +16,11 @@ interface IncomingStats {
 }
 
 export default function IncomingPage() {
+ const navigate = useNavigate()
  const [searchParams] = useSearchParams()
  const [vendors, setVendors] = useState<Vendor[]>([])
  const [list, setList] = useState<Incoming[]>([])
+ const [issuedMap, setIssuedMap] = useState<Map<string, string>>(new Map()) // incoming_id -> invoice_id
  const [statsMap, setStatsMap] = useState<Map<string, IncomingStats>>(new Map())
  const [loading, setLoading] = useState(true)
  const [vendorFilter, setVendorFilter] = useState<string>('all')
@@ -34,12 +36,17 @@ export default function IncomingPage() {
 
  async function load() {
  setLoading(true)
- const [{ data: vData }, { data: iData }] = await Promise.all([
+ const [{ data: vData }, { data: iData }, { data: invs }] = await Promise.all([
  supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
  supabase.from('incoming').select('*').is('deleted_at', null).order('created_at', { ascending: false }),
+ supabase.from('invoices').select('id, incoming_id').is('deleted_at', null).not('incoming_id', 'is', null),
  ])
  setVendors(vData ?? [])
  setList(iData ?? [])
+ // 입고 → 계산서 발행 추적
+ const im = new Map<string, string>()
+ ;(invs ?? []).forEach((iv: any) => { if (iv.incoming_id) im.set(iv.incoming_id, iv.id) })
+ setIssuedMap(im)
 
  if (iData && iData.length > 0) {
  const ids = iData.map(i => i.id)
@@ -89,6 +96,132 @@ export default function IncomingPage() {
    if (error) return alert('삭제 실패: ' + error.message)
    bulk.clear()
    load()
+ }
+
+ /** 입고 → 계산서 자동 발행 (증분 모드).
+  *  - 단가는 products.selling_price 자동 매칭 (없으면 vendor 안에서 코드/이름 fallback)
+  *  - 라인은 (납기일 × 상품) 단위로 묶어서 정리
+  *  - 이미 이 입고에서 발행된 계산서가 있으면 → 그 라인들 빼고 신규만 발행 (중복 방지)
+  */
+ async function convertToInvoice(inc: Incoming) {
+   const { data: items } = await supabase.from('incoming_items').select('*').eq('incoming_id', inc.id)
+   if (!items || items.length === 0) return alert('입고 라인이 없어요.')
+
+   // ① 이 입고에서 이미 발행된 계산서들의 라인을 모두 모아서 "이미 발행된 키" 집합 만들기
+   //    키 = `${line_date}__${product_id || product_name}` — 같은 날짜+상품은 중복으로 봄
+   const { data: existingInvs } = await supabase
+     .from('invoices').select('id').eq('incoming_id', inc.id).is('deleted_at', null)
+   const existingInvIds = (existingInvs ?? []).map((x: any) => x.id)
+   const alreadyKeys = new Set<string>()
+   if (existingInvIds.length > 0) {
+     const { data: existingItems } = await supabase
+       .from('invoice_items').select('line_date, product_id, product_name').in('invoice_id', existingInvIds)
+     ;(existingItems ?? []).forEach((it: any) => {
+       const k = `${it.line_date || ''}__${it.product_id || it.product_name || ''}`
+       alreadyKeys.add(k)
+     })
+   }
+
+   // ② 거래처의 상품 카탈로그 (단가 매칭용)
+   const { data: prods } = await supabase.from('products').select('id, code, name, selling_price, color')
+     .eq('vendor_id', inc.vendor_id).is('deleted_at', null)
+   const byId = new Map<string, any>()
+   const byCode = new Map<string, any>()
+   const byName = new Map<string, any>()
+   ;(prods ?? []).forEach((p: any) => {
+     byId.set(p.id, p)
+     if (p.code) byCode.set(String(p.code).trim().toLowerCase(), p)
+     if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
+   })
+
+   // period에서 fallback 날짜 (delivery_date 빈 라인을 위해)
+   let fallbackDate = new Date().toISOString().slice(0, 10)
+   if (inc.period) {
+     const m = String(inc.period).match(/(\d{4})[.\-/](\d{1,2})/)
+     if (m) fallbackDate = `${m[1]}-${m[2].padStart(2, '0')}-01`
+   }
+
+   // ③ 라인 변환 — (납기일, 상품) 별로 합산
+   const lineMap = new Map<string, any>()
+   items.forEach((it: any) => {
+     const dKey = it.delivery_date || fallbackDate
+     const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
+     const k = `${dKey}__${pKey}`
+     let prod = it.product_id ? byId.get(it.product_id) : null
+     if (!prod) {
+       const codeKey = (it.product_code || '').toString().trim().toLowerCase()
+       const nameKey = (it.product_name || '').toString().trim().toLowerCase()
+       prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
+     }
+     const existing = lineMap.get(k)
+     const qty = Number(it.total_quantity || 0)
+     if (existing) {
+       existing.quantity += qty
+     } else {
+       lineMap.set(k, {
+         line_date: dKey,
+         product_id: prod?.id || it.product_id || null,
+         product_name: prod?.name || it.product_name || it.product_code || '',
+         color: prod?.color || null,
+         quantity: qty,
+         unit_price: Number(prod?.selling_price ?? 0),
+       })
+     }
+   })
+   const allLines = Array.from(lineMap.values()).sort((a, b) => a.line_date.localeCompare(b.line_date))
+
+   // ④ 이미 발행된 라인 제외 → 신규만 남김
+   const newLines = allLines.filter(l => {
+     const k = `${l.line_date}__${l.product_id || l.product_name}`
+     return !alreadyKeys.has(k)
+   })
+   const skippedCount = allLines.length - newLines.length
+
+   if (newLines.length === 0) {
+     return alert(
+       `발행할 새 라인이 없어요.\n\n이 입고의 ${allLines.length}개 라인 모두 이미 계산서에 포함되어 있습니다.`
+       + (existingInvIds.length > 0 ? `\n(${existingInvIds.length}건의 계산서로 이미 발행됨)` : '')
+     )
+   }
+
+   // ⑤ 사용자 확인 — 신규 라인 수 + 건너뛴 라인 수 안내
+   const subtotal = newLines.reduce((s, l) => s + l.quantity * l.unit_price, 0)
+   const vat = Math.round(subtotal * 0.1)
+   const total = subtotal + vat
+   const noPriceCount = newLines.filter(l => !l.unit_price).length
+   const confirmMsg =
+     (skippedCount > 0
+       ? `⚙ 증분 발행 모드\n이미 발행된 ${skippedCount}개 라인은 제외하고, 새 ${newLines.length}개 라인만 발행합니다.\n\n`
+       : `${newLines.length}개 라인을 새 계산서로 발행합니다.\n\n`)
+     + `금액: ₩${total.toLocaleString()}\n`
+     + (noPriceCount > 0 ? `⚠ 단가 미매칭 ${noPriceCount}건 (계산서에서 직접 수정 필요)\n\n` : '\n')
+     + `발행할까요?`
+   if (!confirm(confirmMsg)) return
+
+   const headerPayload = {
+     vendor_id: inc.vendor_id,
+     issue_date: new Date().toISOString().slice(0, 10),
+     supplier_business_number: '216-21-18212',
+     supplier_name: '써치(SEARCH)',
+     supplier_ceo: '함기호',
+     supplier_address: '서울시 동대문구 안암로 16길 4, 2층',
+     bank_info: '함기호(써치) 국민은행 038737-04-002188',
+     subtotal, vat, total,
+     incoming_id: inc.id,
+     deposit_amount: 0,
+     notes: `입고 ${inc.period || ''}에서 자동 발행됨${skippedCount > 0 ? ` (증분 ${newLines.length}/${allLines.length})` : ''}`,
+   }
+   const { data: created, error } = await supabase.from('invoices').insert(headerPayload).select().single()
+   if (error) { alert('계산서 생성 실패: ' + error.message); return }
+
+   const linePayload = newLines.map((l, idx) => ({ invoice_id: created.id, ...l, sort_order: idx }))
+   await supabase.from('invoice_items').insert(linePayload)
+
+   if (confirm(`✅ 발행 완료 — 계산서 편집 화면으로 이동할까요?`)) {
+     navigate(`/invoices?edit=${created.id}`)
+   } else {
+     load()
+   }
  }
 
  function vendorName(id: string) {
@@ -274,7 +407,21 @@ export default function IncomingPage() {
                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{stats?.cartons || 0}</td>
                    <td className="px-4 py-2.5 text-right tabular-nums text-zinc-600">{stats?.productCount || 0}</td>
                    <td className="px-4 py-2.5 text-zinc-600">{i.brand || '—'}</td>
-                   <td className="px-4 py-2.5 text-right">
+                   <td className="px-4 py-2.5 text-right whitespace-nowrap">
+                     {issuedMap.has(i.id) && (
+                       <button
+                         onClick={() => navigate(`/invoices?edit=${issuedMap.get(i.id)}`)}
+                         title="이 입고로 발행된 계산서 보기"
+                         className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 mr-1"
+                       >📄 발행됨</button>
+                     )}
+                     <Button
+                       size="sm"
+                       variant="ghost"
+                       onClick={() => convertToInvoice(i)}
+                       title={issuedMap.has(i.id) ? '입고에 새로 추가된 라인만 추가 발행 (중복 자동 제외)' : '이 입고로 계산서 1클릭 발행'}
+                       className="text-violet-600 hover:bg-violet-50"
+                     >📄 {issuedMap.has(i.id) ? '추가 발행' : '계산서 발행'}</Button>
                      <Button size="sm" variant="ghost" onClick={() => { setEditing(i); setDrawerOpen(true) }}>수정</Button>
                      <Button size="sm" variant="ghost" onClick={() => handleDelete(i)} className="text-rose-600 hover:bg-rose-50">삭제</Button>
                    </td>
