@@ -20,6 +20,7 @@ export interface Vendor {
   memo: string | null
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface Product {
@@ -34,6 +35,7 @@ export interface Product {
   notes: string | null
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface CostItem {
@@ -70,6 +72,7 @@ export interface Incoming {
   notes: string | null
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface IncomingItem {
@@ -104,6 +107,7 @@ export interface Invoice {
   notes: string | null
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface InvoiceItem {
@@ -147,6 +151,7 @@ export interface SupplierInvoice {
   total: number
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface SupplierInvoiceItem {
@@ -187,6 +192,7 @@ export interface Quotation {
   notes: string | null
   created_at: string
   updated_at: string
+  deleted_at?: string | null
 }
 
 export interface QuotationItem {

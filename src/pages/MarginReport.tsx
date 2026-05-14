@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, ProductMargin } from '@/lib/types'
-import { Button, Input, Select, PageHeader, Empty, Badge } from '@/components/ui'
+import { Button, Input, Select, Empty, Badge } from '@/components/ui'
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 
 interface MarginLine {
@@ -24,6 +25,7 @@ interface MarginLine {
 type Period = 'this_month' | 'last_month' | 'this_year' | 'all'
 
 export default function MarginReport() {
+ const navigate = useNavigate()
  const [vendors, setVendors] = useState<Vendor[]>([])
  const [lines, setLines] = useState<MarginLine[]>([])
  const [loading, setLoading] = useState(true)
@@ -117,14 +119,35 @@ export default function MarginReport() {
  const totalMargin = totalRevenue - totalCost
  const avgMarginRate = totalRevenue > 0 ? (totalMargin / totalRevenue) * 100 : 0
 
- return (
- <div>
- <PageHeader
- title="마진내역서"
- description="상품별·거래처별 매출과 원가, 마진을 분석합니다. 계산서에 등록된 모든 라인이 기준입니다."
- action={<Button variant="secondary" onClick={() => {
+ // 추가 분석 지표
+ const linesWithCost = filtered.filter(l => l.cost_per_unit > 0)
+ const linesWithoutCost = filtered.filter(l => l.cost_per_unit === 0 && l.product_id)
+ const lossLines = linesWithCost.filter(l => l.margin < 0)
+ const lossAmount = lossLines.reduce((s, l) => s + l.margin, 0)
+ const noCostRevenue = linesWithoutCost.reduce((s, l) => s + l.revenue, 0)
+
+ // 상품별 집계 → TOP/BOTTOM
+ const byProduct = new Map<string, { name: string; vendor: string; qty: number; revenue: number; cost: number; margin: number; rate: number; hasCost: boolean }>()
+ filtered.forEach(l => {
+   const key = l.product_id || `__none__${l.product_name}`
+   const e = byProduct.get(key) || { name: l.product_name, vendor: l.vendor_name, qty: 0, revenue: 0, cost: 0, margin: 0, rate: 0, hasCost: l.cost_per_unit > 0 }
+   e.qty += l.quantity
+   e.revenue += l.revenue
+   e.cost += l.total_cost
+   e.margin = e.revenue - e.cost
+   e.rate = e.revenue > 0 ? (e.margin / e.revenue) * 100 : 0
+   if (l.cost_per_unit > 0) e.hasCost = true
+   byProduct.set(key, e)
+ })
+ const productList = Array.from(byProduct.values()).filter(p => p.hasCost)
+ const topProfitable = [...productList].sort((a, b) => b.margin - a.margin).slice(0, 5)
+ const topLossy = [...productList].sort((a, b) => a.margin - b.margin).filter(p => p.margin < 0).slice(0, 5)
+
+ const periodLabel = period === 'this_month' ? '이번 달' : period === 'last_month' ? '지난 달' : period === 'this_year' ? `${thisYear}년` : '전체 기간'
+
+ function exportCurrent() {
    const data = rowsToSheet(filtered as any[], [
-     { key: 'line_date', label: '날짜' },
+     { key: 'invoice_date', label: '날짜' },
      { key: 'vendor_name', label: '거래처' },
      { key: 'product_name', label: '상품' },
      { key: 'color', label: '컬러/사이즈' },
@@ -136,23 +159,124 @@ export default function MarginReport() {
      { key: 'margin', label: '마진' },
      { key: 'margin_rate', label: '마진율%', format: (v: number) => v ? v.toFixed(1) : 0 },
    ])
-   // 합계 행 추가
    data.push(['합계','','','', totalQty, '', totalRevenue, '', totalCost, totalMargin, avgMarginRate.toFixed(1)])
    exportSheet(data, '마진내역서', '마진내역서')
- }} disabled={filtered.length === 0}>📥 엑셀 내보내기</Button>}
- />
+ }
+
+ return (
+ <div>
+ {/* 그라데이션 헤더 — 마진은 영업 분석 톤 (오렌지 → 로즈 → 검정) */}
+ <div className="mb-5 -mx-4 -mt-4 sm:-mx-6 sm:-mt-6 px-4 sm:px-6 pt-5 pb-6 bg-gradient-to-br from-orange-600 via-rose-700 to-zinc-900 text-white rounded-b-3xl">
+   <div className="flex items-end justify-between flex-wrap gap-3">
+     <div>
+       <p className="text-[11px] uppercase tracking-wider text-orange-200 mb-1">MARGIN · {periodLabel}</p>
+       <h1 className="text-[24px] sm:text-[28px] font-bold tracking-tight">마진내역서</h1>
+       <p className="text-[12px] text-orange-100/80 mt-1">계산서 라인을 기준으로 매출·원가·마진을 한눈에 분석</p>
+     </div>
+     <div className="text-right">
+       <div className="text-[10px] uppercase tracking-wider text-orange-200 mb-1">{periodLabel} 마진</div>
+       <div className={`text-[26px] sm:text-[32px] font-bold tabular-nums ${totalMargin >= 0 ? 'text-white' : 'text-rose-200'}`}>
+         ₩{totalMargin.toLocaleString()}
+       </div>
+       <div className="text-[12px] text-orange-100/80 mt-0.5">평균 마진율 {avgMarginRate.toFixed(1)}%</div>
+     </div>
+   </div>
+
+   <div className="mt-4 flex items-center gap-2 flex-wrap">
+     {linesWithoutCost.length > 0 && (
+       <button
+         onClick={() => navigate('/products')}
+         className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-amber-400/20 hover:bg-amber-400/30 text-amber-100 text-[12px] border border-amber-300/30"
+       >
+         ⚠ 원가 미입력 라인 {linesWithoutCost.length}건 (₩{noCostRevenue.toLocaleString()} 측정 안 됨) →
+       </button>
+     )}
+     {lossLines.length > 0 && (
+       <span className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full bg-rose-400/20 text-rose-100 text-[12px] border border-rose-300/30">
+         🔻 손실 라인 {lossLines.length}건 (총 ₩{Math.abs(lossAmount).toLocaleString()} 손해)
+       </span>
+     )}
+     <Button variant="secondary" onClick={exportCurrent} disabled={filtered.length === 0} className="bg-white/10 hover:bg-white/20 text-white border-white/20 ml-auto">📥 엑셀</Button>
+   </div>
+ </div>
 
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
- <StatCard label="매출액" value={`₩${totalRevenue.toLocaleString()}`} hint={`납품 ${totalQty.toLocaleString()}장`} />
- <StatCard label="원가 합계" value={`₩${totalCost.toLocaleString()}`} hint="생산원가 기준" />
+ <StatCard label="매출액" value={`₩${totalRevenue.toLocaleString()}`} hint={`납품 ${totalQty.toLocaleString()}장 · ${filtered.length}건`} accent="blue" />
+ <StatCard label="원가 합계" value={`₩${totalCost.toLocaleString()}`} hint={`원가 등록 ${linesWithCost.length}건 기준`} accent="amber" />
  <StatCard
  label="마진"
  value={`₩${totalMargin.toLocaleString()}`}
  hint={`평균 마진율 ${avgMarginRate.toFixed(1)}%`}
- highlight={totalMargin > 0 ? 'green' : totalMargin < 0 ? 'rose' : 'zinc'}
+ accent={totalMargin > 0 ? 'green' : totalMargin < 0 ? 'rose' : 'zinc'}
  />
- <StatCard label="라인 수" value={`${filtered.length}건`} hint="필터 결과" />
+ <StatCard
+   label="손실 라인"
+   value={lossLines.length > 0 ? `${lossLines.length}건` : '0건'}
+   hint={lossLines.length > 0 ? `총 ₩${Math.abs(lossAmount).toLocaleString()} 손해` : '🎉 손실 없음'}
+   accent={lossLines.length > 0 ? 'rose' : 'green'}
+ />
  </div>
+
+ {/* 상품별 마진 TOP / BOTTOM */}
+ {productList.length > 0 && (
+   <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
+     <div className="bg-white border border-emerald-100 rounded-2xl overflow-hidden">
+       <div className="px-4 py-2.5 bg-gradient-to-r from-emerald-50 to-white border-b border-emerald-100 flex items-center justify-between">
+         <h3 className="text-[13px] font-semibold text-emerald-900">🏆 마진 TOP 5 상품</h3>
+         <span className="text-[10px] text-emerald-700">원가 입력된 상품 중</span>
+       </div>
+       {topProfitable.length === 0 ? (
+         <p className="px-4 py-6 text-[12px] text-zinc-400 text-center">아직 없음</p>
+       ) : (
+         <table className="w-full text-[12px]">
+           <tbody>
+             {topProfitable.map((p, i) => (
+               <tr key={i} className="border-b border-zinc-50 last:border-b-0">
+                 <td className="px-4 py-2 text-zinc-400 w-6 tabular-nums">{i + 1}</td>
+                 <td className="px-1 py-2">
+                   <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
+                   <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                 </td>
+                 <td className="px-4 py-2 text-right whitespace-nowrap">
+                   <div className="font-bold tabular-nums text-emerald-700">₩{p.margin.toLocaleString()}</div>
+                   <div className="text-[10px] text-emerald-600">{p.rate.toFixed(1)}%</div>
+                 </td>
+               </tr>
+             ))}
+           </tbody>
+         </table>
+       )}
+     </div>
+
+     <div className="bg-white border border-rose-100 rounded-2xl overflow-hidden">
+       <div className="px-4 py-2.5 bg-gradient-to-r from-rose-50 to-white border-b border-rose-100 flex items-center justify-between">
+         <h3 className="text-[13px] font-semibold text-rose-900">⚠ 손실 상품</h3>
+         <span className="text-[10px] text-rose-700">마진 &lt; 0</span>
+       </div>
+       {topLossy.length === 0 ? (
+         <p className="px-4 py-6 text-[12px] text-emerald-600 text-center">🎉 손실 상품 없음</p>
+       ) : (
+         <table className="w-full text-[12px]">
+           <tbody>
+             {topLossy.map((p, i) => (
+               <tr key={i} className="border-b border-zinc-50 last:border-b-0">
+                 <td className="px-4 py-2 text-zinc-400 w-6 tabular-nums">{i + 1}</td>
+                 <td className="px-1 py-2">
+                   <div className="font-medium text-zinc-900 text-[12px]">{p.name}</div>
+                   <div className="text-[10px] text-zinc-500">{p.vendor} · {p.qty.toLocaleString()}장</div>
+                 </td>
+                 <td className="px-4 py-2 text-right whitespace-nowrap">
+                   <div className="font-bold tabular-nums text-rose-700">−₩{Math.abs(p.margin).toLocaleString()}</div>
+                   <div className="text-[10px] text-rose-600">{p.rate.toFixed(1)}%</div>
+                 </td>
+               </tr>
+             ))}
+           </tbody>
+         </table>
+       )}
+     </div>
+   </div>
+ )}
 
  <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
  <div className="p-3 border-b border-zinc-100 flex items-center gap-3 flex-wrap">
@@ -269,14 +393,22 @@ export default function MarginReport() {
  )
 }
 
-function StatCard({ label, value, hint, highlight = 'zinc' }: {
- label: string; value: string; hint?: string; highlight?: 'zinc' | 'green' | 'rose'
+function StatCard({ label, value, hint, accent }: {
+ label: string; value: string; hint?: string; accent?: 'zinc' | 'blue' | 'green' | 'amber' | 'violet' | 'rose'
 }) {
- const colors = { zinc: 'text-zinc-900', green: 'text-emerald-700', rose: 'text-rose-700' }
+ const palettes = {
+   zinc:   { bg: 'from-zinc-50 to-white border-zinc-200',       text: 'text-zinc-900' },
+   blue:   { bg: 'from-blue-50 to-white border-blue-100',       text: 'text-blue-900' },
+   green:  { bg: 'from-emerald-50 to-white border-emerald-100', text: 'text-emerald-900' },
+   amber:  { bg: 'from-amber-50 to-white border-amber-100',     text: 'text-amber-900' },
+   violet: { bg: 'from-violet-50 to-white border-violet-100',   text: 'text-violet-900' },
+   rose:   { bg: 'from-rose-50 to-white border-rose-100',       text: 'text-rose-900' },
+ }
+ const p = accent ? palettes[accent] : null
  return (
- <div className="bg-white border border-zinc-200 rounded-2xl p-4">
+ <div className={`border rounded-2xl p-4 ${p ? `bg-gradient-to-br ${p.bg}` : 'bg-white border-zinc-200'}`}>
  <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-500">{label}</p>
- <p className={`text-[20px] font-bold mt-1 tabular-nums ${colors[highlight]}`}>{value}</p>
+ <p className={`text-[20px] font-bold mt-1 tabular-nums ${p?.text || 'text-zinc-900'}`}>{value}</p>
  {hint && <p className="text-[11px] text-zinc-400 mt-0.5">{hint}</p>}
  </div>
  )
