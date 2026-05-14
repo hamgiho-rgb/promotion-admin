@@ -15,6 +15,14 @@ interface IncomingStats {
  productCount: number
 }
 
+/** 합계/소계/총계 행 판별 — DB에 들어가 있어도 통계·계산서 변환에서 자동 제외 */
+const SUMMARY_PATTERN = /^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i
+function isSummaryItem(it: { product_code?: string | null; product_name?: string | null }) {
+ const code = (it.product_code || '').toString().trim()
+ const name = (it.product_name || '').toString().trim()
+ return SUMMARY_PATTERN.test(code) || SUMMARY_PATTERN.test(name)
+}
+
 export default function IncomingPage() {
  const navigate = useNavigate()
  const [searchParams] = useSearchParams()
@@ -52,11 +60,12 @@ export default function IncomingPage() {
  const ids = iData.map(i => i.id)
  const { data: items } = await supabase
  .from('incoming_items')
- .select('incoming_id, total_quantity, product_id')
+ .select('incoming_id, total_quantity, product_id, product_code, product_name')
  .in('incoming_id', ids)
 
  const map = new Map<string, IncomingStats & { productSet: Set<string> }>()
  ;(items ?? []).forEach(it => {
+ if (isSummaryItem(it)) return  // 합계 행 제외 — 통계 두 배 방지
  if (!map.has(it.incoming_id)) {
  map.set(it.incoming_id, { totalQuantity: 0, cartons: 0, productCount: 0, productSet: new Set() })
  }
@@ -104,8 +113,10 @@ export default function IncomingPage() {
   *  - 이미 이 입고에서 발행된 계산서가 있으면 → 그 라인들 빼고 신규만 발행 (중복 방지)
   */
  async function convertToInvoice(inc: Incoming) {
-   const { data: items } = await supabase.from('incoming_items').select('*').eq('incoming_id', inc.id)
-   if (!items || items.length === 0) return alert('입고 라인이 없어요.')
+   const { data: rawItems } = await supabase.from('incoming_items').select('*').eq('incoming_id', inc.id)
+   // 합계/소계 행은 안전망 필터 — DB 정리 안 됐어도 계산서로 안 넘어감
+   const items = (rawItems ?? []).filter(it => !isSummaryItem(it))
+   if (items.length === 0) return alert('입고 라인이 없어요.')
 
    // ① 이 입고에서 이미 발행된 계산서들의 라인을 모두 모아서 "이미 발행된 키" 집합 만들기
    //    키 = `${line_date}__${product_id || product_name}` — 같은 날짜+상품은 중복으로 봄
