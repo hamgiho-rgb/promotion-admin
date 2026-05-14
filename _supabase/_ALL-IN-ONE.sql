@@ -179,6 +179,28 @@ create index if not exists idx_invoices_alive   on invoices(issue_date) where de
 create index if not exists idx_incoming_alive   on incoming(period)     where deleted_at is null;
 create index if not exists idx_quotations_alive on quotations(issue_date) where deleted_at is null;
 
+-- ────────────────────────────────────────
+-- 9. 변경 이력 로그 (audit log)
+-- ────────────────────────────────────────
+create table if not exists activity_logs (
+  id           uuid primary key default gen_random_uuid(),
+  actor_name   text,
+  actor_id     uuid,
+  action       text not null,
+  entity_type  text not null,
+  entity_id    uuid,
+  entity_label text,
+  summary      text,
+  details      jsonb,
+  created_at   timestamptz default now()
+);
+create index if not exists idx_activity_logs_created on activity_logs(created_at desc);
+create index if not exists idx_activity_logs_entity  on activity_logs(entity_type, entity_id);
+create index if not exists idx_activity_logs_actor   on activity_logs(actor_id);
+alter table activity_logs enable row level security;
+drop policy if exists "anon_all_activity_logs" on activity_logs;
+create policy "anon_all_activity_logs" on activity_logs for all using (true) with check (true);
+
 -- ════════════════════════════════════════════════════════════════════
 -- 끝! 다 한 번에 실행됨. 다시 실행해도 안전 (멱등).
 -- ════════════════════════════════════════════════════════════════════

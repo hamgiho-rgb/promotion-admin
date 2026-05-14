@@ -7,6 +7,7 @@ import { exportMultiSheet, rowsToSheet } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import { softDelete, softDeleteMany } from '@/lib/trash'
 import { todayKR } from '@/lib/datetime'
+import { logAction } from '@/lib/activityLog'
 import IncomingImportButton from '@/components/IncomingImportButton'
 
 /* ───── 입고내역서별 집계 ───── */
@@ -260,6 +261,17 @@ export default function IncomingPage() {
 
    const linePayload = newLines.map((l, idx) => ({ invoice_id: created.id, ...l, sort_order: idx }))
    await supabase.from('invoice_items').insert(linePayload)
+
+   logAction({
+     action: 'convert',
+     entity_type: 'invoice',
+     entity_id: created.id,
+     entity_label: `${vendorName(inc.vendor_id)} ${inc.period || ''}`,
+     summary: skippedCount > 0
+       ? `입고 → 계산서 증분 발행 (신규 ${newLines.length} / 스킵 ${skippedCount}) ₩${total.toLocaleString()}`
+       : `입고 → 계산서 발행 (${newLines.length}개 라인 · ₩${total.toLocaleString()})`,
+     details: { from_incoming_id: inc.id, to_invoice_id: created.id, new_lines: newLines.length, skipped: skippedCount, total },
+   })
 
    if (confirm(`✅ 발행 완료 — 계산서 편집 화면으로 이동할까요?`)) {
      navigate(`/invoices?edit=${created.id}`)

@@ -7,6 +7,7 @@ import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import { softDelete, softDeleteMany } from '@/lib/trash'
 import { todayKR } from '@/lib/datetime'
+import { logAction } from '@/lib/activityLog'
 
 const STATUS_LABEL: Record<QuotationStatus, string> = {
  draft: '작성중',
@@ -99,6 +100,15 @@ export default function QuotationsPage() {
 
    // 견적서 상태도 'converted'로
    await supabase.from('quotations').update({ status: 'converted' }).eq('id', q.id)
+
+   logAction({
+     action: 'convert',
+     entity_type: 'invoice',
+     entity_id: created.id,
+     entity_label: `${vendorName(q.vendor_id)} ${q.issue_date}`,
+     summary: `견적서 → 계산서 발행 (₩${q.total ? Number(q.total).toLocaleString() : 0})`,
+     details: { from_quotation_id: q.id, to_invoice_id: created.id },
+   })
 
    if (confirm('계산서가 발행됐어요! 바로 계산서 편집 화면으로 이동할까요?\n(수량을 실제 출고량으로 수정하세요)')) {
      navigate(`/invoices?edit=${created.id}`)

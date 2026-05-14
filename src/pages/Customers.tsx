@@ -7,6 +7,7 @@ import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import FlatImportButton from '@/components/FlatImportButton'
 import { softDelete } from '@/lib/trash'
 import { findDuplicateGroups } from '@/lib/vendorMatch'
+import { logAction } from '@/lib/activityLog'
 
 /* 메모에서 "품목: A, B, C" 파싱 */
 function parseItems(memo: string | null | undefined): string[] {
@@ -129,6 +130,14 @@ export default function Customers() {
     } else {
       alert(`✅ '${fromVendor.name}' → '${toVendor.name}' 병합 완료`)
     }
+    logAction({
+      action: 'merge',
+      entity_type: 'vendor',
+      entity_id: toVendor.id,
+      entity_label: toVendor.name,
+      summary: `'${fromVendor.name}' → '${toVendor.name}' 병합`,
+      details: { from_id: fromVendor.id, from_name: fromVendor.name, to_id: toVendor.id, to_name: toVendor.name },
+    })
     setMergingFrom(null)
     load()
   }

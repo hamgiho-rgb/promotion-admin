@@ -21,6 +21,7 @@ import SupplierPayments from '@/pages/SupplierPayments'
 import SupplierInvoices from '@/pages/SupplierInvoices'
 import SupplierInvoicePrint from '@/pages/SupplierInvoicePrint'
 import Trash from '@/pages/Trash'
+import ActivityLogs from '@/pages/ActivityLogs'
 
 export default function App() {
   return (
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="supplier-invoices" element={<SupplierInvoices />} />
             <Route path="import"     element={<DataImport />} />
             <Route path="trash"      element={<Trash />} />
+            <Route path="logs"       element={<ActivityLogs />} />
             <Route path="settings"   element={<Settings />} />
             <Route path="*" element={<Navigate to="/" replace />} />
           </Routes>

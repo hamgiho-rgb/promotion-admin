@@ -6,6 +6,7 @@ import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import FlatImportButton from '@/components/FlatImportButton'
 import { softDelete } from '@/lib/trash'
 import { findDuplicateGroups } from '@/lib/vendorMatch'
+import { logAction } from '@/lib/activityLog'
 
 /* ───── 공급처 (원단·부자재·공임을 사오는 곳) ───── */
 const CATEGORY_OPTIONS = [
@@ -126,6 +127,14 @@ export default function Suppliers() {
     } else {
       alert(`✅ '${fromVendor.name}' → '${toVendor.name}' 병합 완료`)
     }
+    logAction({
+      action: 'merge',
+      entity_type: 'vendor',
+      entity_id: toVendor.id,
+      entity_label: toVendor.name,
+      summary: `(공급처) '${fromVendor.name}' → '${toVendor.name}' 병합`,
+      details: { from_id: fromVendor.id, from_name: fromVendor.name, to_id: toVendor.id, to_name: toVendor.name },
+    })
     setMergingFrom(null)
     load()
   }

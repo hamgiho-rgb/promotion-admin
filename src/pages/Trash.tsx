@@ -13,6 +13,7 @@ import {
   restoreMany,
 } from '@/lib/trash'
 import { fmtKRDateTime } from '@/lib/datetime'
+import { logAction } from '@/lib/activityLog'
 
 interface TrashRow {
   id: string
@@ -126,14 +127,18 @@ export default function Trash() {
   async function handleHardDeleteSelected() {
     if (selected.size === 0) return
     if (!confirm(`선택한 ${selected.size}건을 영구 삭제할까요?\n복구할 수 없습니다.`)) return
-    await hardDeleteMany(tab, Array.from(selected))
+    const ids = Array.from(selected)
+    await hardDeleteMany(tab, ids)
+    logAction({ action: 'hard_delete', entity_type: tab.replace(/s$/, '') as any, summary: `${TABLE_LABEL[tab]} ${ids.length}건 영구 삭제`, details: { count: ids.length } })
     await loadCounts()
     await loadTab(tab)
   }
   async function handleEmpty() {
     if (rows.length === 0) return
     if (!confirm(`${TABLE_LABEL[tab]} 휴지통의 ${rows.length}건을 모두 영구 삭제할까요?\n복구할 수 없습니다.`)) return
-    await hardDeleteMany(tab, rows.map(r => r.id))
+    const ids = rows.map(r => r.id)
+    await hardDeleteMany(tab, ids)
+    logAction({ action: 'hard_delete', entity_type: tab.replace(/s$/, '') as any, summary: `${TABLE_LABEL[tab]} 휴지통 비움 (${ids.length}건)`, details: { count: ids.length } })
     await loadCounts()
     await loadTab(tab)
   }
