@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react'
 import { useParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Quotation, QuotationItem, Vendor } from '@/lib/types'
+import { toKRDate } from '@/lib/datetime'
 
 export default function QuotationPrint() {
   const { id } = useParams()
@@ -39,7 +40,7 @@ export default function QuotationPrint() {
   const issueDate = new Date(q.issue_date)
   const validUntil = new Date(issueDate)
   validUntil.setDate(validUntil.getDate() + (q.validity_days || 30))
-  const validUntilStr = validUntil.toISOString().slice(0, 10)
+  const validUntilStr = toKRDate(validUntil)
 
   return (
     <div className="bg-zinc-100 min-h-screen py-8 print:bg-white print:py-0">

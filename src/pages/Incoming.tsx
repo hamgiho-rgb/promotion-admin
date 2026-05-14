@@ -6,6 +6,7 @@ import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textare
 import { exportMultiSheet, rowsToSheet } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import { softDelete, softDeleteMany } from '@/lib/trash'
+import { todayKR } from '@/lib/datetime'
 import IncomingImportButton from '@/components/IncomingImportButton'
 
 /* ───── 입고내역서별 집계 ───── */
@@ -152,7 +153,7 @@ export default function IncomingPage() {
    })
 
    // period에서 fallback 날짜 (delivery_date 빈 라인을 위해)
-   let fallbackDate = new Date().toISOString().slice(0, 10)
+   let fallbackDate = todayKR()
    if (inc.period) {
      const m = String(inc.period).match(/(\d{4})[.\-/](\d{1,2})/)
      if (m) fallbackDate = `${m[1]}-${m[2].padStart(2, '0')}-01`
@@ -217,7 +218,7 @@ export default function IncomingPage() {
 
    const headerPayload = {
      vendor_id: inc.vendor_id,
-     issue_date: new Date().toISOString().slice(0, 10),
+     issue_date: todayKR(),
      supplier_business_number: '216-21-18212',
      supplier_name: '써치(SEARCH)',
      supplier_ceo: '함기호',

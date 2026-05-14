@@ -12,6 +12,7 @@ import {
   restore,
   restoreMany,
 } from '@/lib/trash'
+import { fmtKRDateTime } from '@/lib/datetime'
 
 interface TrashRow {
   id: string
@@ -234,7 +235,7 @@ export default function Trash() {
                     <td className="px-4 py-2.5 font-medium text-zinc-900">{r.label}</td>
                     <td className="px-4 py-2.5 text-zinc-500 text-[12px]">{r.meta}</td>
                     <td className="px-4 py-2.5 text-zinc-500 text-[12px] tabular-nums">
-                      {new Date(r.deleted_at).toLocaleString('ko-KR')}
+                      {fmtKRDateTime(r.deleted_at)}
                     </td>
                     <td className="px-4 py-2.5">
                       {days <= 3

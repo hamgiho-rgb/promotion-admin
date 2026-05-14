@@ -6,6 +6,7 @@ import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textare
 import { exportSheet, rowsToSheet } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import { softDelete, softDeleteMany } from '@/lib/trash'
+import { todayKR } from '@/lib/datetime'
 
 const STATUS_LABEL: Record<QuotationStatus, string> = {
  draft: '작성중',
@@ -64,7 +65,7 @@ export default function QuotationsPage() {
 
    const headerPayload = {
      vendor_id: q.vendor_id,
-     issue_date: new Date().toISOString().slice(0, 10),
+     issue_date: todayKR(),
      supplier_business_number: q.supplier_business_number || '',
      supplier_name: q.supplier_name || '',
      supplier_ceo: q.supplier_ceo || '',
@@ -396,7 +397,7 @@ function QuotationDrawer({ open, onClose, editing, vendors, onSaved }: {
  loadExisting(editing)
  } else {
  setForm({
- issue_date: new Date().toISOString().slice(0, 10),
+ issue_date: todayKR(),
  validity_days: 30,
  vendor_id: vendors[0]?.id,
  supplier_business_number: '216-21-18212',
@@ -490,7 +491,7 @@ function QuotationDrawer({ open, onClose, editing, vendors, onSaved }: {
 
  const headerPayload = {
  vendor_id: form.vendor_id,
- issue_date: form.issue_date || new Date().toISOString().slice(0, 10),
+ issue_date: form.issue_date || todayKR(),
  validity_days: Number(form.validity_days || 30),
  supplier_business_number: form.supplier_business_number || '',
  supplier_name: form.supplier_name || '',

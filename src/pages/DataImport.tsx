@@ -2,6 +2,7 @@ import { useState, useRef } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
 import { Button, Select, PageHeader, Empty, Badge } from '@/components/ui'
+import { toKRDate } from '@/lib/datetime'
 
 type EntityType = 'customers' | 'suppliers' | 'products' | 'incoming' | 'invoices'
 
@@ -208,7 +209,7 @@ function parseAWSheet(sheetName: string, grid: any[][]): AWReceipt | null {
     let delivery_date: string | null = null
     if (colDate >= 0) {
       const d = row[colDate]
-      if (d instanceof Date) delivery_date = d.toISOString().slice(0, 10)
+      if (d instanceof Date) delivery_date = toKRDate(d)
       else if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}/.test(d)) delivery_date = d.slice(0, 10)
     }
 
@@ -897,7 +898,7 @@ function cleanStr(v: any) {
 
 function normalizeDate(v: any): string | null {
   if (!v) return null
-  if (v instanceof Date) return v.toISOString().slice(0, 10)
+  if (v instanceof Date) return toKRDate(v)
   if (typeof v === 'number') {
     const d = XLSX.SSF.parse_date_code(v)
     if (d) return `${d.y}-${String(d.m).padStart(2,'0')}-${String(d.d).padStart(2,'0')}`

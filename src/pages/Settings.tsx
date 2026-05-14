@@ -3,6 +3,7 @@ import { supabase } from '@/lib/supabase'
 import { Button, Input, Label, PageHeader, Drawer, Empty, Badge, Select } from '@/components/ui'
 import { getCurrentUser, lock, type AppUser } from '@/components/PinGate'
 import { downloadFullBackup } from '@/lib/backupExport'
+import { fmtKRDate, fmtKRDateTime } from '@/lib/datetime'
 
 /* ────────────────────────────────────────────────
  * 설정 / 사용자 관리
@@ -144,7 +145,7 @@ export default function Settings() {
                     </Badge>
                   </td>
                   <td className="px-5 py-3 text-zinc-500 tabular-nums text-[12px]">
-                    {new Date((u as any).created_at || 0).toLocaleDateString('ko-KR')}
+                    {fmtKRDate((u as any).created_at)}
                   </td>
                   <td className="px-5 py-3 text-right whitespace-nowrap">
                     {(isAdmin || u.id === me.id) && (
@@ -199,7 +200,7 @@ function BackupSection() {
       onProgress: msg => setProgress(msg),
     })
     setRunning(false)
-    setLastResult({ ...result, at: new Date().toLocaleString('ko-KR') })
+    setLastResult({ ...result, at: fmtKRDateTime(new Date()) })
   }
 
   return (

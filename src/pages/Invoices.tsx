@@ -7,6 +7,7 @@ import { exportInvoiceReceipt, exportInvoiceReceiptsMulti } from '@/lib/exportXl
 import InvoiceImportButton from '@/components/InvoiceImportButton'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import { softDelete, softDeleteMany } from '@/lib/trash'
+import { todayKR } from '@/lib/datetime'
 
 /* ──────────────────────────────────────────────────────────
  * 계산서/영수증 페이지
@@ -413,7 +414,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  loadExisting(editing)
  } else {
  setForm({
- issue_date: new Date().toISOString().slice(0, 10),
+ issue_date: todayKR(),
  vendor_id: vendors[0]?.id,
  supplier_business_number: '216-21-18212',
  supplier_name: '써치(SEARCH)',
@@ -555,7 +556,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  function addEmptyLine() {
  setLines(prev => [...prev, {
  tempId: newTempId(),
- line_date: form.issue_date || new Date().toISOString().slice(0, 10),
+ line_date: form.issue_date || todayKR(),
  product_id: null,
  product_name: '',
  color: '',
@@ -650,7 +651,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
 
  const headerPayload = {
  vendor_id: form.vendor_id,
- issue_date: form.issue_date || new Date().toISOString().slice(0, 10),
+ issue_date: form.issue_date || todayKR(),
  supplier_business_number: form.supplier_business_number || '',
  supplier_name: form.supplier_name || '',
  supplier_ceo: form.supplier_ceo || '',
