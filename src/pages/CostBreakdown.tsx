@@ -12,6 +12,7 @@ export default function CostBreakdown() {
   const [customers, setCustomers] = useState<Vendor[]>([])
   const [selectedId, setSelectedId] = useState<string>('')
   const [items, setItems] = useState<CostItem[]>([])
+  const [copyModalOpen, setCopyModalOpen] = useState(false)
   const [loading, setLoading] = useState(true)
   const [productSearch, setProductSearch] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -87,6 +88,33 @@ export default function CostBreakdown() {
   async function updateItem(id: string, patch: Partial<CostItem>) {
     const { error } = await supabase.from('cost_items').update(patch).eq('id', id)
     if (error) return alert('수정 실패: ' + error.message)
+    loadItems(selectedId)
+  }
+
+  /** 다른 상품의 cost_items를 복사 */
+  async function copyFromProduct(sourceProductId: string, mode: 'replace' | 'append') {
+    if (!selectedId || sourceProductId === selectedId) return
+    const { data: sourceItems } = await supabase.from('cost_items')
+      .select('*').eq('product_id', sourceProductId).order('sort_order')
+    if (!sourceItems || sourceItems.length === 0) {
+      alert('복사할 원가 항목이 없어요.')
+      return
+    }
+    if (mode === 'replace') {
+      await supabase.from('cost_items').delete().eq('product_id', selectedId)
+    }
+    const startSort = mode === 'append' ? items.length : 0
+    const payload = sourceItems.map((it: any, i: number) => ({
+      product_id: selectedId,
+      supplier_id: it.supplier_id,
+      item_name: it.item_name,
+      unit_price: Number(it.unit_price || 0),
+      yards: Number(it.yards || 0),
+      sort_order: startSort + i,
+    }))
+    const { error } = await supabase.from('cost_items').insert(payload)
+    if (error) return alert('복사 실패: ' + error.message)
+    setCopyModalOpen(false)
     loadItems(selectedId)
   }
 
@@ -227,7 +255,7 @@ export default function CostBreakdown() {
               </div>
             ) : (
               <>
-                {/* 선택 상품 헤더 + 빠른 이동 */}
+                {/* 선택 상품 헤더 + 빠른 이동 + 원가 복사 */}
                 <div className="bg-white border border-zinc-200 rounded-2xl p-4 mb-3 flex items-center justify-between gap-3 flex-wrap">
                   <div className="flex items-center gap-2">
                     <span className="text-[18px]">📦</span>
@@ -236,9 +264,18 @@ export default function CostBreakdown() {
                       <p className="text-[11px] text-zinc-500">{selectedProduct.code} {selectedProduct.color ? `· ${selectedProduct.color}` : ''}</p>
                     </div>
                   </div>
-                  <button onClick={() => navigate(`/products/${selectedProduct.id}`)} className="text-[12px] text-blue-600 hover:underline whitespace-nowrap">
-                    상품 상세 보기 →
-                  </button>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setCopyModalOpen(true)}
+                      className="text-[12px] px-3 py-1.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-medium whitespace-nowrap"
+                      title="다른 상품의 원가를 그대로 가져오기"
+                    >
+                      📋 원가 복사
+                    </button>
+                    <button onClick={() => navigate(`/products/${selectedProduct.id}`)} className="text-[12px] text-blue-600 hover:underline whitespace-nowrap">
+                      상품 상세 보기 →
+                    </button>
+                  </div>
                 </div>
 
                 {/* 요약 카드 */}
@@ -362,6 +399,118 @@ export default function CostBreakdown() {
           </div>
         </div>
       )}
+
+      {/* 원가 복사 모달 */}
+      <CopyCostModal
+        open={copyModalOpen}
+        onClose={() => setCopyModalOpen(false)}
+        currentProduct={selectedProduct}
+        candidates={products.filter(p => p.id !== selectedId)}
+        hasExisting={items.length > 0}
+        onCopy={copyFromProduct}
+      />
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 원가 복사 모달 — 다른 상품 선택 → cost_items 복사
+ * 같은 디자인 다른 칼라 / 비슷한 상품 입력 노가다 줄이기
+ * ───────────────────────────────────────────── */
+function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting, onCopy }: {
+  open: boolean
+  onClose: () => void
+  currentProduct: Product | null
+  candidates: Product[]
+  hasExisting: boolean
+  onCopy: (productId: string, mode: 'replace' | 'append') => void
+}) {
+  const [search, setSearch] = useState('')
+  const [selectedId, setSelectedId] = useState<string>('')
+  if (!open || !currentProduct) return null
+
+  // 추천: 같은 거래처 + 같은 코드 prefix (DD26SMTS-009- 같은 거)
+  const baseCode = (currentProduct.code || '').replace(/-[A-Z]{2,3}$/, '')   // 끝의 컬러 코드 제거
+  const sameDesign = candidates.filter(p =>
+    p.vendor_id === currentProduct.vendor_id &&
+    p.code && (p.code.startsWith(baseCode) || p.name === currentProduct.name)
+  )
+  const others = candidates.filter(p => !sameDesign.includes(p))
+  const filtered = search
+    ? candidates.filter(p =>
+        (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+        (p.code || '').toLowerCase().includes(search.toLowerCase())
+      )
+    : null
+  const list = filtered || [...sameDesign, ...others]
+  const selected = candidates.find(p => p.id === selectedId)
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-100">
+          <h2 className="text-[16px] font-semibold text-zinc-900">📋 원가 복사</h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">
+            <span className="font-semibold text-zinc-800">{currentProduct.name}</span> {currentProduct.color ? `(${currentProduct.color})` : ''}로 다른 상품의 원가 항목을 복사합니다.
+          </p>
+        </div>
+
+        <div className="px-5 py-3 border-b border-zinc-100">
+          <Input value={search} onChange={e => setSearch(e.target.value)} placeholder="다른 상품 이름/품번 검색" />
+        </div>
+
+        <div className="flex-1 overflow-y-auto px-5 py-3">
+          {list.length === 0 ? (
+            <p className="text-[12px] text-zinc-400 text-center py-8">복사 가능한 상품이 없어요</p>
+          ) : (
+            <>
+              {!filtered && sameDesign.length > 0 && (
+                <div className="mb-2 inline-flex items-center gap-2 px-2 py-1 rounded bg-emerald-50 text-emerald-800 text-[10px] border border-emerald-200">
+                  💡 같은 디자인 후보 {sameDesign.length}개 추천
+                </div>
+              )}
+              <div className="space-y-1">
+                {list.slice(0, 30).map(p => (
+                  <button
+                    key={p.id}
+                    onClick={() => setSelectedId(p.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
+                      selectedId === p.id
+                        ? 'bg-emerald-50 border-emerald-300'
+                        : sameDesign.includes(p)
+                          ? 'bg-emerald-50/40 border-emerald-100 hover:bg-emerald-50'
+                          : 'bg-white border-zinc-200 hover:bg-zinc-50'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-[13px] font-medium text-zinc-900 truncate">{p.name} {p.color && <span className="text-zinc-500">· {p.color}</span>}</p>
+                        <p className="text-[11px] text-zinc-500 font-mono">{p.code}</p>
+                      </div>
+                      {selectedId === p.id && <span className="text-emerald-600 text-[14px] flex-shrink-0">✓</span>}
+                    </div>
+                  </button>
+                ))}
+                {list.length > 30 && (
+                  <p className="text-[11px] text-zinc-400 text-center py-2">... 그 외 {list.length - 30}개 (검색으로 좁히세요)</p>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="px-5 py-3 border-t border-zinc-100 flex items-center justify-between gap-2 flex-wrap">
+          <Button variant="secondary" onClick={onClose}>취소</Button>
+          <div className="flex gap-2">
+            {hasExisting && (
+              <Button variant="secondary" onClick={() => selected && onCopy(selected.id, 'append')} disabled={!selected} title="기존 항목 유지하고 복사한 항목을 뒤에 추가">＋ 추가하기</Button>
+            )}
+            <Button onClick={() => selected && onCopy(selected.id, 'replace')} disabled={!selected} title={hasExisting ? '기존 항목 모두 삭제하고 복사' : '복사한 항목으로 채우기'}>
+              {hasExisting ? '⚠ 덮어쓰기' : '복사하기'}
+            </Button>
+          </div>
+        </div>
+      </div>
     </div>
   )
 }
