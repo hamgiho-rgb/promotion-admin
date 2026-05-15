@@ -64,6 +64,7 @@ export default function InvoiceImportButton({ onImported }: { onImported: () => 
       const vendorsList: Vendor[] = (vendorsData ?? []) as Vendor[]
       // fuzzy 매칭: 회사명 변형 자동 매칭 → 중복 거래처 생성 방지
       const cachedNewVendors: Vendor[] = []
+      let overwrittenCount = 0  // 기존 계산서 덮어쓴 건수
 
       for (const inv of invoices) {
         let vendor = findVendorByFuzzyName(inv.vendor_name, [...vendorsList, ...cachedNewVendors], 'customer')
@@ -85,18 +86,36 @@ export default function InvoiceImportButton({ onImported }: { onImported: () => 
         const subtotal = inv.subtotal
         const vat = Math.round(subtotal * 0.1)
         const total = subtotal + vat
+        const noteTag = `[${inv.vendor_name}] ${inv.sheetName}`
 
-        const { data: invData, error: invErr } = await supabase.from('invoices').insert({
-          vendor_id: vendor.id,
-          issue_date: inv.issue_date,
-          subtotal, vat, total,
-          notes: `[${inv.vendor_name}] ${inv.sheetName}`,
-          ...SUPPLIER,
-        }).select().single()
-        if (invErr) {
-          fail += inv.lines.length
-          errors.push(`${inv.vendor_name} ${inv.sheetName}: ${invErr.message}`)
-          continue
+        // ★ 중복 체크: (vendor_id + issue_date + notes) 일치하는 기존 계산서 찾기 → 덮어쓰기
+        const { data: existing } = await supabase.from('invoices')
+          .select('id').eq('vendor_id', vendor.id).eq('issue_date', inv.issue_date)
+          .eq('notes', noteTag).is('deleted_at', null).limit(1)
+
+        let invoiceId: string
+        if (existing && existing.length > 0) {
+          // 기존 계산서 덮어쓰기 — 라인 다 삭제하고 새로 INSERT, 헤더는 합계 업데이트
+          invoiceId = existing[0].id
+          await supabase.from('invoice_items').delete().eq('invoice_id', invoiceId)
+          await supabase.from('invoices').update({
+            subtotal, vat, total, ...SUPPLIER,
+          }).eq('id', invoiceId)
+          overwrittenCount++
+        } else {
+          const { data: invData, error: invErr } = await supabase.from('invoices').insert({
+            vendor_id: vendor.id,
+            issue_date: inv.issue_date,
+            subtotal, vat, total,
+            notes: noteTag,
+            ...SUPPLIER,
+          }).select().single()
+          if (invErr) {
+            fail += inv.lines.length
+            errors.push(`${inv.vendor_name} ${inv.sheetName}: ${invErr.message}`)
+            continue
+          }
+          invoiceId = invData.id
         }
 
         const itemRows = inv.lines.map((l, i) => {
@@ -105,7 +124,7 @@ export default function InvoiceImportButton({ onImported }: { onImported: () => 
             ? `${l.color}/${l.size}`
             : (l.color || l.size || null)
           return {
-            invoice_id: invData.id,
+            invoice_id: invoiceId,
             line_date: inv.issue_date,
             product_name: l.product_name,
             color: colorWithSize,
@@ -124,6 +143,7 @@ export default function InvoiceImportButton({ onImported }: { onImported: () => 
           }
         }
       }
+      if (overwrittenCount > 0) errors.unshift(`✓ ${overwrittenCount}개 계산서는 기존 (같은 거래처+같은 날짜+같은 시트)에 덮어썼습니다.`)
 
       setResult({ ok, fail, errors: errors.slice(0, 10) })
       if (ok > 0) onImported()

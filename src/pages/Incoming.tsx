@@ -729,9 +729,102 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
  }
  }
 
+ // ★ 입고 → 계산서 동기화: 이 입고로 발행된 계산서 있으면 사용자에게 묻고 라인 다시 생성
+ if (editing) {
+   const { data: linkedInvs } = await supabase.from('invoices')
+     .select('id, vendor_id').eq('incoming_id', incomingId).is('deleted_at', null)
+   if (linkedInvs && linkedInvs.length > 0) {
+     const ok = confirm(
+       `이 입고로 발행된 계산서 ${linkedInvs.length}건이 있어요.\n\n입고 변경사항을 계산서에도 반영할까요?\n\n` +
+       `[확인] → 계산서 라인을 입고 기준으로 다시 생성 (수동으로 수정한 단가/라인은 사라집니다)\n` +
+       `[취소] → 계산서는 그대로 두고 입고만 저장`
+     )
+     if (ok) {
+       await syncInvoicesFromIncoming(incomingId, linkedInvs[0].vendor_id)
+     }
+   }
+ }
+
  setSaving(false)
  setDirty(false)
  if (closeAfter) onSaved()
+ }
+
+ /** 입고에 연결된 모든 계산서의 라인을 입고 기준으로 다시 생성 */
+ async function syncInvoicesFromIncoming(incomingId: string, vendorId: string) {
+   const { data: items } = await supabase.from('incoming_items').select('*').eq('incoming_id', incomingId)
+   if (!items) return
+
+   // 거래처 상품 카탈로그 (단가 매칭)
+   const { data: prods } = await supabase.from('products').select('id, code, name, selling_price, color')
+     .eq('vendor_id', vendorId).is('deleted_at', null)
+   const byId = new Map<string, any>()
+   const byCode = new Map<string, any>()
+   const byName = new Map<string, any>()
+   ;(prods ?? []).forEach((p: any) => {
+     byId.set(p.id, p)
+     if (p.code) byCode.set(String(p.code).trim().toLowerCase(), p)
+     if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
+   })
+
+   // 입고 라인 → 계산서 라인 변환 (사이즈별 분리, 단가 자동)
+   const newLines: any[] = []
+   const lineMap = new Map<string, any>()
+   items.filter(it => !isSummaryItem(it)).forEach((it: any) => {
+     const dKey = it.delivery_date || ''
+     const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
+     let prod = it.product_id ? byId.get(it.product_id) : null
+     if (!prod) {
+       const codeKey = (it.product_code || '').toString().trim().toLowerCase()
+       const nameKey = (it.product_name || '').toString().trim().toLowerCase()
+       prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
+     }
+     const baseLine = {
+       line_date: dKey || null,
+       product_id: prod?.id || it.product_id || null,
+       product_name: prod?.name || it.product_name || it.product_code || '',
+       color: prod?.color || null,
+       unit_price: Number(prod?.selling_price ?? 0),
+     }
+     const sizes = it.sizes || {}
+     const sizeEntries = Object.entries(sizes).filter(([_, n]) => Number(n) > 0)
+     if (sizeEntries.length === 0) {
+       const k = `${dKey}__${pKey}__`
+       const existing = lineMap.get(k)
+       const qty = Number(it.total_quantity || 0)
+       if (existing) existing.quantity += qty
+       else lineMap.set(k, { ...baseLine, size: null, quantity: qty })
+     } else {
+       sizeEntries.forEach(([sz, n]) => {
+         const k = `${dKey}__${pKey}__${sz}`
+         const existing = lineMap.get(k)
+         const qty = Number(n)
+         if (existing) existing.quantity += qty
+         else lineMap.set(k, { ...baseLine, size: sz, quantity: qty })
+       })
+     }
+   })
+   const allLines = Array.from(lineMap.values())
+     .sort((a, b) => (a.line_date || '').localeCompare(b.line_date || '') || (a.product_name || '').localeCompare(b.product_name || ''))
+
+   // 연결된 모든 계산서 가져와서 첫 번째에 라인 다 넣고, 나머지는 빈 채로 유지
+   // (보통 입고당 계산서 1건이라 큰 문제 없음. 여러 건 있으면 첫 번째만 동기화)
+   const { data: linkedInvs } = await supabase.from('invoices')
+     .select('id').eq('incoming_id', incomingId).is('deleted_at', null).order('issue_date', { ascending: false })
+   if (!linkedInvs || linkedInvs.length === 0) return
+
+   const targetInvId = linkedInvs[0].id
+   // 기존 라인 모두 삭제
+   await supabase.from('invoice_items').delete().eq('invoice_id', targetInvId)
+   // 새 라인 INSERT
+   const linePayload = allLines.map((l, idx) => ({ invoice_id: targetInvId, ...l, sort_order: idx }))
+   if (linePayload.length > 0) {
+     await supabase.from('invoice_items').insert(linePayload)
+   }
+   // 합계 재계산
+   const subtotal = allLines.reduce((s, l) => s + l.quantity * l.unit_price, 0)
+   const vat = Math.round(subtotal * 0.1)
+   await supabase.from('invoices').update({ subtotal, vat, total: subtotal + vat }).eq('id', targetInvId)
  }
 
  function handleClose() {

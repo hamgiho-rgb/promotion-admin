@@ -348,19 +348,37 @@ function ImportButton({ suppliers, onImported }: { suppliers: Vendor[]; onImport
     const errors: string[] = []
 
     try {
+      let overwrittenCount = 0
       for (const sheet of parsed) {
-        const { data: invData, error: invErr } = await supabase.from('supplier_invoices').insert({
-          supplier_id: supplierId,
-          period: sheet.period,
-          subtotal: sheet.subtotal,
-          vat: 0,
-          total: sheet.subtotal,
-          notes: `[${sheet.sheetName}]`,
-        }).select().single()
-        if (invErr) { fail += sheet.lines.length; errors.push(`${sheet.sheetName}: ${invErr.message}`); continue }
+        // 중복 체크: 같은 (공급처 + 기간 + 시트명)이면 덮어쓰기
+        const noteTag = `[${sheet.sheetName}]`
+        const { data: existing } = await supabase.from('supplier_invoices')
+          .select('id').eq('supplier_id', supplierId).eq('period', sheet.period || '')
+          .eq('notes', noteTag).is('deleted_at', null).limit(1)
+
+        let invoiceId: string
+        if (existing && existing.length > 0) {
+          invoiceId = existing[0].id
+          await supabase.from('supplier_invoice_items').delete().eq('invoice_id', invoiceId)
+          await supabase.from('supplier_invoices').update({
+            subtotal: sheet.subtotal, vat: 0, total: sheet.subtotal,
+          }).eq('id', invoiceId)
+          overwrittenCount++
+        } else {
+          const { data: invData, error: invErr } = await supabase.from('supplier_invoices').insert({
+            supplier_id: supplierId,
+            period: sheet.period,
+            subtotal: sheet.subtotal,
+            vat: 0,
+            total: sheet.subtotal,
+            notes: noteTag,
+          }).select().single()
+          if (invErr) { fail += sheet.lines.length; errors.push(`${sheet.sheetName}: ${invErr.message}`); continue }
+          invoiceId = invData.id
+        }
 
         const itemPayload = sheet.lines.map((l, i) => ({
-          invoice_id: invData.id,
+          invoice_id: invoiceId,
           line_date: l.line_date,
           product_name: l.product_name,
           brand: l.brand,
@@ -378,6 +396,7 @@ function ImportButton({ suppliers, onImported }: { suppliers: Vendor[]; onImport
           }
         }
       }
+      if (overwrittenCount > 0) errors.unshift(`✓ ${overwrittenCount}개 공급처 계산서는 기존 (같은 공급처+같은 기간+같은 시트)에 덮어썼습니다.`)
       setResult({ ok, fail, errors: errors.slice(0, 10) })
       if (ok > 0) onImported()
     } catch (err: any) {
