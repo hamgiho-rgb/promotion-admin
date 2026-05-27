@@ -110,6 +110,36 @@ export default function SupplierPayments() {
   }, [costItems])
   const incomingById = useMemo(() => new Map(incomings.map(i => [i.id, i])), [incomings])
 
+  // 입고 라인 product_id가 비어있을 때 fuzzy 매칭용 — 거래처별 코드/이름 인덱스
+  const productLookupByVendor = useMemo(() => {
+    const byCode = new Map<string, string>()  // `${vendor_id}__${code.lower}` → product_id
+    const byName = new Map<string, string>()
+    products.forEach(p => {
+      if (p.code) byCode.set(`${p.vendor_id}__${String(p.code).trim().toLowerCase()}`, p.id)
+      if (p.name) byName.set(`${p.vendor_id}__${String(p.name).trim().toLowerCase()}`, p.id)
+    })
+    return { byCode, byName }
+  }, [products])
+
+  /** 입고 라인에서 매칭되는 product_id 찾기 (fallback 매칭 포함) */
+  function resolveProductId(it: IncomingItem): string | null {
+    if (it.product_id) return it.product_id
+    const inc = incomingById.get(it.incoming_id)
+    if (!inc) return null
+    const vid = inc.vendor_id
+    const codeKey = (it.product_code || '').toString().trim().toLowerCase()
+    const nameKey = (it.product_name || '').toString().trim().toLowerCase()
+    if (codeKey) {
+      const pid = productLookupByVendor.byCode.get(`${vid}__${codeKey}`)
+      if (pid) return pid
+    }
+    if (nameKey) {
+      const pid = productLookupByVendor.byName.get(`${vid}__${nameKey}`)
+      if (pid) return pid
+    }
+    return null
+  }
+
   // 기간 필터링 — incoming.period (YYYY.MM) 기준
   function periodMatches(inc: Incoming): boolean {
     const now = new Date()
@@ -138,14 +168,24 @@ export default function SupplierPayments() {
   // 핵심 집계
   const supplierTotals = useMemo<SupplierTotal[]>(() => {
     const filteredIncIds = new Set(incomings.filter(periodMatches).map(i => i.id))
-    const filteredItems = items.filter(it => filteredIncIds.has(it.incoming_id) && it.product_id && it.total_quantity > 0)
+    // product_id 비어있는 라인도 fuzzy 매칭으로 jeresolve, 합계/노트 행은 제외
+    const filteredItems = items.filter(it => {
+      if (!filteredIncIds.has(it.incoming_id)) return false
+      if (Number(it.total_quantity || 0) <= 0) return false
+      // 합계 행 제외
+      const code = (it.product_code || '').toString().trim()
+      const name = (it.product_name || '').toString().trim()
+      if (/^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i.test(code) || /^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i.test(name)) return false
+      return true
+    })
 
     // supplier_id → SupplierTotal
     const map = new Map<string, SupplierTotal>()
     const productSets = new Map<string, Set<string>>()
 
     filteredItems.forEach(it => {
-      const pid = it.product_id!
+      const pid = resolveProductId(it)
+      if (!pid) return  // 끝까지 매칭 안되면 스킵 (diagnostics에서 잡힘)
       const qty = it.total_quantity
       const product = productById.get(pid)
       const costs = costItemsByProduct.get(pid) || []
@@ -194,6 +234,46 @@ export default function SupplierPayments() {
       .filter(st => supplierIdFilter === 'all' || st.supplier_id === supplierIdFilter)
       .sort((a, b) => b.totalAmount - a.totalAmount)
   }, [items, incomings, costItems, vendors, products, period, customFrom, customTo, categoryFilter, supplierIdFilter, vendorById, productById, costItemsByProduct])
+
+  // 진단 — 정산 못 잡힌 입고 라인 분석
+  const diagnostics = useMemo(() => {
+    const filteredIncIds = new Set(incomings.filter(periodMatches).map(i => i.id))
+    const noProductMatch: { vendorName: string; code: string; name: string; qty: number }[] = []
+    const noCostItem: { vendorName: string; productName: string; qty: number }[] = []
+    const noCostSupplier: { vendorName: string; productName: string; itemName: string }[] = []
+    const summarySet = new Set<string>()
+
+    items.forEach(it => {
+      if (!filteredIncIds.has(it.incoming_id)) return
+      if (Number(it.total_quantity || 0) <= 0) return
+      const code = (it.product_code || '').toString().trim()
+      const name = (it.product_name || '').toString().trim()
+      if (/^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i.test(code) || /^(합\s*계|소\s*계|총\s*계|계|total|sum)$/i.test(name)) return
+      const inc = incomingById.get(it.incoming_id)
+      const vendorName = vendorById.get(inc?.vendor_id || '')?.name || '?'
+      const pid = resolveProductId(it)
+      if (!pid) {
+        noProductMatch.push({ vendorName, code, name, qty: Number(it.total_quantity) })
+        return
+      }
+      const costs = costItemsByProduct.get(pid) || []
+      const productName = productById.get(pid)?.name || name
+      if (costs.length === 0) {
+        noCostItem.push({ vendorName, productName, qty: Number(it.total_quantity) })
+        return
+      }
+      costs.forEach(c => {
+        if (!c.supplier_id) {
+          const k = `${pid}__${c.id}`
+          if (!summarySet.has(k)) {
+            noCostSupplier.push({ vendorName, productName, itemName: c.item_name })
+            summarySet.add(k)
+          }
+        }
+      })
+    })
+    return { noProductMatch, noCostItem, noCostSupplier }
+  }, [items, incomings, period, customFrom, customTo, productById, costItemsByProduct, vendorById, incomingById, productLookupByVendor])
 
   // 카테고리별 합계 (상단 카드)
   const byCategoryTotal = useMemo(() => {
@@ -302,6 +382,51 @@ export default function SupplierPayments() {
           </div>
         )}
       </div>
+
+      {/* 진단 — 정산 안 잡힌 입고 라인 (있을 때만) */}
+      {(diagnostics.noProductMatch.length + diagnostics.noCostItem.length + diagnostics.noCostSupplier.length) > 0 && (
+        <div className="mb-4 bg-amber-50 border border-amber-200 rounded-2xl p-4">
+          <h3 className="text-[13px] font-semibold text-amber-900 mb-2">⚠ 정산에 안 잡힌 항목 — 원인별 정리</h3>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+            {diagnostics.noProductMatch.length > 0 && (
+              <div className="bg-white border border-amber-200 rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-amber-700 mb-1">상품 매칭 실패 · {diagnostics.noProductMatch.length}건</p>
+                <p className="text-[10px] text-zinc-600 mb-2">입고 품번이 상품 카탈로그와 다르거나 등록 안 됨</p>
+                <div className="text-[10px] text-zinc-500 max-h-24 overflow-y-auto">
+                  {diagnostics.noProductMatch.slice(0, 5).map((d, i) => (
+                    <div key={i}>· {d.vendorName} <span className="font-mono">{d.code}</span> {d.name} ({d.qty}장)</div>
+                  ))}
+                  {diagnostics.noProductMatch.length > 5 && <div>... 외 {diagnostics.noProductMatch.length - 5}건</div>}
+                </div>
+              </div>
+            )}
+            {diagnostics.noCostItem.length > 0 && (
+              <div className="bg-white border border-amber-200 rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-amber-700 mb-1">원가 미입력 · {diagnostics.noCostItem.length}건</p>
+                <p className="text-[10px] text-zinc-600 mb-2">상품에 원가계산서 항목 없음</p>
+                <div className="text-[10px] text-zinc-500 max-h-24 overflow-y-auto">
+                  {diagnostics.noCostItem.slice(0, 5).map((d, i) => (
+                    <div key={i}>· {d.vendorName} {d.productName} ({d.qty}장)</div>
+                  ))}
+                  {diagnostics.noCostItem.length > 5 && <div>... 외 {diagnostics.noCostItem.length - 5}건</div>}
+                </div>
+              </div>
+            )}
+            {diagnostics.noCostSupplier.length > 0 && (
+              <div className="bg-white border border-amber-200 rounded-lg p-3">
+                <p className="text-[11px] font-semibold text-amber-700 mb-1">원가 공급처 미지정 · {diagnostics.noCostSupplier.length}건</p>
+                <p className="text-[10px] text-zinc-600 mb-2">cost_items에 supplier_id가 비어있음</p>
+                <div className="text-[10px] text-zinc-500 max-h-24 overflow-y-auto">
+                  {diagnostics.noCostSupplier.slice(0, 5).map((d, i) => (
+                    <div key={i}>· {d.productName} → {d.itemName}</div>
+                  ))}
+                  {diagnostics.noCostSupplier.length > 5 && <div>... 외 {diagnostics.noCostSupplier.length - 5}건</div>}
+                </div>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
 
       {/* 통계 카드 */}
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">

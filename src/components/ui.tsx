@@ -58,8 +58,9 @@ interface InlineInputProps {
   type?: 'text' | 'number'
   step?: string
   className?: string
+  placeholder?: string
 }
-export function InlineInput({ value, onCommit, type = 'text', step, className = '' }: InlineInputProps) {
+export function InlineInput({ value, onCommit, type = 'text', step, className = '', placeholder }: InlineInputProps) {
   const [local, setLocal] = useState(String(value ?? ''))
   const composingRef = useRef(false)
 
@@ -72,11 +73,14 @@ export function InlineInput({ value, onCommit, type = 'text', step, className = 
     if (String(value ?? '') !== local) onCommit(local)
   }
 
+  const dirty = String(value ?? '') !== local
+
   return (
     <input
       type={type}
       step={step}
       value={local}
+      placeholder={placeholder}
       onChange={e => setLocal(e.target.value)}
       onCompositionStart={() => { composingRef.current = true }}
       onCompositionEnd={() => { composingRef.current = false }}
@@ -86,7 +90,8 @@ export function InlineInput({ value, onCommit, type = 'text', step, className = 
           e.currentTarget.blur()
         }
       }}
-      className={`w-full px-3 py-2.5 sm:py-2 text-[16px] sm:text-[13px] bg-white border border-zinc-200 rounded-lg outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 transition-colors placeholder:text-zinc-400 ${className}`}
+      title={dirty ? '⏳ 수정 중 — Enter 또는 다른 칸 클릭 시 저장' : ''}
+      className={`w-full px-3 py-2.5 sm:py-2 text-[16px] sm:text-[13px] bg-white border ${dirty ? 'border-amber-400 bg-amber-50' : 'border-zinc-200'} rounded-lg outline-none focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 transition-colors placeholder:text-zinc-400 ${className}`}
     />
   )
 }

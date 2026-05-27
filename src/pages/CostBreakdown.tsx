@@ -76,7 +76,7 @@ export default function CostBreakdown() {
     const { error } = await supabase.from('cost_items').insert({
       product_id: selectedId,
       supplier_id: supplierId || null,
-      item_name: '신규 항목',
+      item_name: '',
       unit_price: 0,
       yards: 0,
       sort_order: items.length,
@@ -266,6 +266,16 @@ export default function CostBreakdown() {
                   </div>
                   <div className="flex items-center gap-2">
                     <button
+                      onClick={() => {
+                        // 활성 input 강제 blur → 자동 저장 트리거
+                        if (document.activeElement instanceof HTMLElement) document.activeElement.blur()
+                      }}
+                      className="text-[12px] px-3 py-1.5 rounded-md bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 font-medium whitespace-nowrap"
+                      title="현재 수정 중인 칸 저장 (Enter 또는 다른 칸 클릭과 동일)"
+                    >
+                      💾 저장
+                    </button>
+                    <button
                       onClick={() => setCopyModalOpen(true)}
                       className="text-[12px] px-3 py-1.5 rounded-md bg-blue-50 hover:bg-blue-100 text-blue-700 border border-blue-200 font-medium whitespace-nowrap"
                       title="다른 상품의 원가를 그대로 가져오기"
@@ -345,6 +355,7 @@ export default function CostBreakdown() {
                                     <InlineInput
                                       value={item.item_name}
                                       onCommit={(v) => updateItem(item.id, { item_name: v })}
+                                      placeholder="재료/공정명 입력"
                                       className="text-[12px] px-2 py-1.5"
                                     />
                                   </td>
