@@ -47,7 +47,9 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
   const [open, setOpen] = useState(false)
   const [search, setSearch] = useState('')
   const [activeIdx, setActiveIdx] = useState(0)
-  const wrapRef = useRef<HTMLDivElement>(null)
+  const [panelPos, setPanelPos] = useState<{ top: number; left: number; width: number } | null>(null)
+  const buttonRef = useRef<HTMLButtonElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
   const selected = suppliers.find(s => s.id === value) || null
@@ -60,22 +62,47 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
     return hay.includes(q)
   })
 
-  // 외부 클릭 감지
+  // 외부 클릭 감지 (버튼과 패널 둘 다 밖이면 닫힘)
   useEffect(() => {
     if (!open) return
     function handler(e: MouseEvent) {
-      if (wrapRef.current && !wrapRef.current.contains(e.target as Node)) setOpen(false)
+      const t = e.target as Node
+      if (buttonRef.current?.contains(t)) return
+      if (panelRef.current?.contains(t)) return
+      setOpen(false)
     }
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [open])
 
-  // 열릴 때 검색창 포커스 + 검색 초기화
+  // 열릴 때 버튼 위치 측정 → fixed positioning + 검색창 포커스
   useEffect(() => {
     if (open) {
+      const rect = buttonRef.current?.getBoundingClientRect()
+      if (rect) {
+        const width = Math.max(rect.width, 260)
+        let left = rect.left
+        // 우측이 화면 밖이면 왼쪽으로 당김
+        if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
+        setPanelPos({ top: rect.bottom + 4, left, width })
+      }
       setSearch('')
       setActiveIdx(0)
       setTimeout(() => inputRef.current?.focus(), 10)
+    } else {
+      setPanelPos(null)
+    }
+  }, [open])
+
+  // 스크롤/리사이즈 시 닫음
+  useEffect(() => {
+    if (!open) return
+    const close = () => setOpen(false)
+    window.addEventListener('scroll', close, true)
+    window.addEventListener('resize', close)
+    return () => {
+      window.removeEventListener('scroll', close, true)
+      window.removeEventListener('resize', close)
     }
   }, [open])
 
@@ -91,9 +118,10 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
   }
 
   return (
-    <div className="relative" ref={wrapRef}>
+    <>
       {/* 트리거 */}
       <button
+        ref={buttonRef}
         type="button"
         onClick={() => setOpen(o => !o)}
         className={`w-full text-left px-2 py-1.5 bg-white border border-zinc-200 rounded-lg outline-none hover:border-zinc-400 focus:border-zinc-400 focus:ring-2 focus:ring-zinc-100 transition-colors flex items-center justify-between gap-1 ${className || 'text-[13px]'}`}
@@ -104,9 +132,12 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
         <span className="text-zinc-400 text-[10px] flex-shrink-0">▼</span>
       </button>
 
-      {/* 드롭다운 패널 */}
-      {open && (
-        <div className="absolute z-30 mt-1 left-0 right-0 min-w-[240px] bg-white border border-zinc-300 rounded-lg shadow-lg overflow-hidden">
+      {/* 드롭다운 패널 — fixed로 띄워서 table cell layout과 무관 */}
+      {open && panelPos && (
+        <div
+          ref={panelRef}
+          style={{ position: 'fixed', top: panelPos.top, left: panelPos.left, width: panelPos.width, zIndex: 50 }}
+          className="bg-white border border-zinc-300 rounded-lg shadow-lg overflow-hidden">
           {/* 검색창 */}
           <div className="p-2 border-b border-zinc-100">
             <input
@@ -183,7 +214,7 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
           onChange(newId)
         }}
       />
-    </div>
+    </>
   )
 }
 
