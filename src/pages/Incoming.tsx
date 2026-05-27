@@ -135,16 +135,16 @@ export default function IncomingPage() {
    if (items.length === 0) return alert('입고 라인이 없어요.')
 
    // ① 이 입고에서 이미 발행된 계산서들의 라인을 모두 모아서 "이미 발행된 키" 집합 만들기
-   //    키 = `${line_date}__${product}__${size}` — 같은 날짜+상품+사이즈는 중복
+   //    키 = `${product}__${color}` — 같은 상품+컬러는 한 라인 (사이즈는 같은 라인의 sizes에 합쳐짐)
    const { data: existingInvs } = await supabase
      .from('invoices').select('id').eq('incoming_id', inc.id).is('deleted_at', null)
    const existingInvIds = (existingInvs ?? []).map((x: any) => x.id)
    const alreadyKeys = new Set<string>()
    if (existingInvIds.length > 0) {
      const { data: existingItems } = await supabase
-       .from('invoice_items').select('line_date, product_id, product_name, size').in('invoice_id', existingInvIds)
+       .from('invoice_items').select('product_id, product_name, color').in('invoice_id', existingInvIds)
      ;(existingItems ?? []).forEach((it: any) => {
-       const k = `${it.line_date || ''}__${it.product_id || it.product_name || ''}__${it.size || ''}`
+       const k = `${it.product_id || it.product_name || ''}__${it.color || ''}`
        alreadyKeys.add(k)
      })
    }
@@ -168,11 +168,10 @@ export default function IncomingPage() {
      if (m) fallbackDate = `${m[1]}-${m[2].padStart(2, '0')}-01`
    }
 
-   // ③ 라인 변환 — (납기일 × 상품 × 사이즈) 별로 합산
-   //    sizes JSON ({"110":5,"120":3}) 풀어서 사이즈별 라인 생성
+   // ③ 라인 변환 — (상품 × 컬러) 별로 합치고 사이즈는 sizes JSON에 누적
+   //    날짜는 제거 (계산서는 입고일자 무시, 한 줄에 사이즈 분포)
    const lineMap = new Map<string, any>()
    items.forEach((it: any) => {
-     const dKey = it.delivery_date || fallbackDate
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
      let prod = it.product_id ? byId.get(it.product_id) : null
      if (!prod) {
@@ -180,44 +179,46 @@ export default function IncomingPage() {
        const nameKey = (it.product_name || '').toString().trim().toLowerCase()
        prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
      }
-     const baseLine = {
-       line_date: dKey,
-       product_id: prod?.id || it.product_id || null,
-       product_name: prod?.name || it.product_name || it.product_code || '',
-       color: prod?.color || null,
-       unit_price: Number(prod?.selling_price ?? 0),
-     }
+     const colorKey = prod?.color || ''
+     const k = `${pKey}__${colorKey}`
 
-     const sizes = it.sizes || {}
-     const sizeEntries = Object.entries(sizes).filter(([_, n]) => Number(n) > 0)
-
-     if (sizeEntries.length === 0) {
-       // 사이즈 정보 없으면 합계로 1라인
-       const k = `${dKey}__${pKey}__`
-       const existing = lineMap.get(k)
-       const qty = Number(it.total_quantity || 0)
-       if (existing) existing.quantity += qty
-       else lineMap.set(k, { ...baseLine, size: null, quantity: qty })
+     const existing = lineMap.get(k)
+     if (existing) {
+       // 같은 (상품 × 컬러) — sizes에 누적
+       const sizes = it.sizes || {}
+       Object.entries(sizes).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) existing.sizes[sz] = (existing.sizes[sz] || 0) + num
+       })
+       existing.quantity += Number(it.total_quantity || 0)
      } else {
-       // 사이즈별로 별도 라인
-       sizeEntries.forEach(([sz, n]) => {
-         const k = `${dKey}__${pKey}__${sz}`
-         const existing = lineMap.get(k)
-         const qty = Number(n)
-         if (existing) existing.quantity += qty
-         else lineMap.set(k, { ...baseLine, size: sz, quantity: qty })
+       // 새 라인
+       const newSizes: Record<string, number> = {}
+       const sourceSizes = it.sizes || {}
+       Object.entries(sourceSizes).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) newSizes[sz] = num
+       })
+       lineMap.set(k, {
+         line_date: null,
+         product_id: prod?.id || it.product_id || null,
+         product_name: prod?.name || it.product_name || it.product_code || '',
+         color: prod?.color || null,
+         size: null,
+         sizes: newSizes,
+         quantity: Number(it.total_quantity || 0),
+         unit_price: Number(prod?.selling_price ?? 0),
        })
      }
    })
-   const allLines = Array.from(lineMap.values()).sort((a, b) => {
-     if (a.line_date !== b.line_date) return a.line_date.localeCompare(b.line_date)
-     if (a.product_name !== b.product_name) return a.product_name.localeCompare(b.product_name)
-     return (a.size || '').localeCompare(b.size || '')
-   })
+   const allLines = Array.from(lineMap.values()).sort((a, b) =>
+     (a.product_name || '').localeCompare(b.product_name || '') ||
+     (a.color || '').localeCompare(b.color || '')
+   )
 
    // ④ 이미 발행된 라인 제외 → 신규만 남김
    const newLines = allLines.filter(l => {
-     const k = `${l.line_date}__${l.product_id || l.product_name}__${l.size || ''}`
+     const k = `${l.product_id || l.product_name}__${l.color || ''}`
      return !alreadyKeys.has(k)
    })
    const skippedCount = allLines.length - newLines.length
@@ -768,11 +769,9 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
      if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
    })
 
-   // 입고 라인 → 계산서 라인 변환 (사이즈별 분리, 단가 자동)
-   const newLines: any[] = []
+   // 입고 라인 → 계산서 라인 변환 (상품×컬러로 합치고 사이즈는 sizes JSON에)
    const lineMap = new Map<string, any>()
    items.filter(it => !isSummaryItem(it)).forEach((it: any) => {
-     const dKey = it.delivery_date || ''
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
      let prod = it.product_id ? byId.get(it.product_id) : null
      if (!prod) {
@@ -780,33 +779,36 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
        const nameKey = (it.product_name || '').toString().trim().toLowerCase()
        prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
      }
-     const baseLine = {
-       line_date: dKey || null,
-       product_id: prod?.id || it.product_id || null,
-       product_name: prod?.name || it.product_name || it.product_code || '',
-       color: prod?.color || null,
-       unit_price: Number(prod?.selling_price ?? 0),
-     }
-     const sizes = it.sizes || {}
-     const sizeEntries = Object.entries(sizes).filter(([_, n]) => Number(n) > 0)
-     if (sizeEntries.length === 0) {
-       const k = `${dKey}__${pKey}__`
-       const existing = lineMap.get(k)
-       const qty = Number(it.total_quantity || 0)
-       if (existing) existing.quantity += qty
-       else lineMap.set(k, { ...baseLine, size: null, quantity: qty })
+     const colorKey = prod?.color || ''
+     const k = `${pKey}__${colorKey}`
+     const existing = lineMap.get(k)
+     if (existing) {
+       const sizes = it.sizes || {}
+       Object.entries(sizes).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) existing.sizes[sz] = (existing.sizes[sz] || 0) + num
+       })
+       existing.quantity += Number(it.total_quantity || 0)
      } else {
-       sizeEntries.forEach(([sz, n]) => {
-         const k = `${dKey}__${pKey}__${sz}`
-         const existing = lineMap.get(k)
-         const qty = Number(n)
-         if (existing) existing.quantity += qty
-         else lineMap.set(k, { ...baseLine, size: sz, quantity: qty })
+       const newSizes: Record<string, number> = {}
+       Object.entries(it.sizes || {}).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) newSizes[sz] = num
+       })
+       lineMap.set(k, {
+         line_date: null,
+         product_id: prod?.id || it.product_id || null,
+         product_name: prod?.name || it.product_name || it.product_code || '',
+         color: prod?.color || null,
+         size: null,
+         sizes: newSizes,
+         quantity: Number(it.total_quantity || 0),
+         unit_price: Number(prod?.selling_price ?? 0),
        })
      }
    })
    const allLines = Array.from(lineMap.values())
-     .sort((a, b) => (a.line_date || '').localeCompare(b.line_date || '') || (a.product_name || '').localeCompare(b.product_name || ''))
+     .sort((a, b) => (a.product_name || '').localeCompare(b.product_name || '') || (a.color || '').localeCompare(b.color || ''))
 
    // 연결된 모든 계산서 가져와서 첫 번째에 라인 다 넣고, 나머지는 빈 채로 유지
    // (보통 입고당 계산서 1건이라 큰 문제 없음. 여러 건 있으면 첫 번째만 동기화)

@@ -146,9 +146,11 @@ alter table invoices
 create index if not exists idx_invoices_incoming on invoices(incoming_id) where incoming_id is not null;
 
 -- ────────────────────────────────────────
--- 7-1. 계산서 라인에 size 컬럼 (사이즈별 라인 분리용)
+-- 7-1. 계산서 라인에 size 컬럼 (사이즈별 라인 분리용 — 단일 사이즈)
+--      + sizes JSON (사이즈별 분포 합계 — 입고내역서 양식처럼 컬럼 펼침용)
 -- ────────────────────────────────────────
 alter table invoice_items add column if not exists size text;
+alter table invoice_items add column if not exists sizes jsonb;
 
 -- ────────────────────────────────────────
 -- 7-2. 계산서 입금 추적 (paid_at, null=미수)

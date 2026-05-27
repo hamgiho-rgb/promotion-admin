@@ -400,6 +400,7 @@ interface LocalLine {
  product_name: string
  color: string | null
  size: string | null
+ sizes: Record<string, number> | null
  quantity: number
  unit_price: number
 }
@@ -457,6 +458,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  product_name: it.product_name || '',
  color: it.color,
  size: it.size || null,
+ sizes: (it as any).sizes || null,
  quantity: Number(it.quantity || 0),
  unit_price: Number(it.unit_price || 0),
  }))
@@ -575,6 +577,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  product_name: '',
  color: '',
  size: null,
+ sizes: null,
  quantity: 1,
  unit_price: 0,
  }])
@@ -707,6 +710,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  product_name: l.product_name || null,
  color: l.color || null,
  size: l.size || null,
+ sizes: (l as any).sizes || null,
  quantity: Number(l.quantity || 0),
  unit_price: Number(l.unit_price || 0),
  sort_order: i,

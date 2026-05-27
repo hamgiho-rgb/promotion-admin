@@ -120,7 +120,8 @@ export interface InvoiceItem {
   product_id: string | null
   product_name: string | null
   color: string | null
-  size: string | null                // 사이즈 (예: "110", "M") — 입고에서 자동 발행 시 사이즈별 라인 분리용
+  size: string | null                // 사이즈 (예: "110", "M") — 단일 사이즈일 때만
+  sizes: Record<string, number> | null  // 사이즈별 분포 ({"110":56,"120":54}) — 입고내역서 양식처럼 컬럼 펼침용
   quantity: number                   // 음수 = 반품
   unit_price: number
   amount: number                     // 자동: quantity * unit_price

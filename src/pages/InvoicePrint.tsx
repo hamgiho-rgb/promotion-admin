@@ -110,19 +110,32 @@ export default function InvoicePrint() {
 
           {/* 거래 라인 표 */}
           {(() => {
-            // 컬럼 자동 표시/숨김 — 모든 라인이 비어있는 컬럼은 숨김
+            // 컬럼 자동 표시/숨김
+            const showDate = items.some(it => (it.line_date || '').trim() !== '')
             const showColor = items.some(it => (it.color || '').trim() !== '')
-            const showSize = items.some(it => ((it as any).size || '').toString().trim() !== '')
-            const colCount = 4 + (showColor ? 1 : 0) + (showSize ? 1 : 0)  // 날짜+품명+수량+단가+금액 = 5? 다시계산
-            const totalCols = 5 + (showColor ? 1 : 0) + (showSize ? 1 : 0)  // 날짜/품명/수량/단가/금액 = 5
+            const showSingleSize = items.some(it => ((it as any).size || '').toString().trim() !== '')
+
+            // sizes JSON에서 모든 사이즈 키 수집 (사이즈별 컬럼 펼침)
+            const sizeKeySet = new Set<string>()
+            items.forEach(it => {
+              const sz = (it as any).sizes as Record<string, number> | null
+              if (sz) Object.keys(sz).forEach(k => { if (Number(sz[k]) > 0) sizeKeySet.add(k) })
+            })
+            const sizeKeys = Array.from(sizeKeySet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+            const showSizeColumns = sizeKeys.length > 0
+            const totalCols = (showDate ? 1 : 0) + 1 + (showColor ? 1 : 0) + (showSingleSize && !showSizeColumns ? 1 : 0) + sizeKeys.length + 3
+
             return (
               <table className="w-full text-[12px] border-2 border-zinc-800 mt-3">
                 <thead>
                   <tr className="bg-zinc-100 border-b-2 border-zinc-800">
-                    <th className="px-2 py-2 border-r border-zinc-300 w-24">날짜</th>
+                    {showDate && <th className="px-2 py-2 border-r border-zinc-300 w-24">날짜</th>}
                     <th className="px-2 py-2 border-r border-zinc-300">품명</th>
                     {showColor && <th className="px-2 py-2 border-r border-zinc-300 w-16">칼라</th>}
-                    {showSize && <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>}
+                    {showSingleSize && !showSizeColumns && <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>}
+                    {sizeKeys.map(sz => (
+                      <th key={sz} className="px-1 py-2 border-r border-zinc-300 text-center tabular-nums" style={{ minWidth: '40px' }}>{sz}</th>
+                    ))}
                     <th className="px-2 py-2 border-r border-zinc-300 w-14">수량</th>
                     <th className="px-2 py-2 border-r border-zinc-300 w-20">단가</th>
                     <th className="px-2 py-2 w-24">금액</th>
@@ -131,33 +144,32 @@ export default function InvoicePrint() {
                 <tbody>
                   {items.length === 0 ? (
                     <tr><td colSpan={totalCols} className="text-center py-6 text-zinc-400">등록된 거래 라인이 없습니다.</td></tr>
-                  ) : items.map(it => (
-                    <tr key={it.id} className={`border-b border-zinc-200 ${it.is_return ? 'bg-rose-50/50' : ''}`}>
-                      <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{it.line_date || ''}</td>
-                      <td className="px-2 py-1.5 border-r border-zinc-200">{it.product_name || ''}</td>
-                      {showColor && <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{it.color || ''}</td>}
-                      {showSize && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{(it as any).size || ''}</td>}
-                      <td className={`px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums ${it.is_return ? 'text-rose-700' : ''}`}>
-                        {Number(it.quantity).toLocaleString()}
-                      </td>
-                      <td className="px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums">{Number(it.unit_price).toLocaleString()}</td>
-                      <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${it.is_return ? 'text-rose-700' : ''}`}>
-                        {Number(it.amount).toLocaleString()}
-                      </td>
-                    </tr>
-                  ))}
-                  {/* 빈 줄들 (양식 미관용) */}
-                  {items.length > 0 && items.length < 10 && Array.from({ length: 10 - items.length }).map((_, i) => (
-                    <tr key={`empty-${i}`} className="border-b border-zinc-200">
-                      <td className="px-2 py-1.5 border-r border-zinc-200 h-6">&nbsp;</td>
-                      <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                      {showColor && <td className="px-2 py-1.5 border-r border-zinc-200"></td>}
-                      {showSize && <td className="px-2 py-1.5 border-r border-zinc-200"></td>}
-                      <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                      <td className="px-2 py-1.5 border-r border-zinc-200"></td>
-                      <td className="px-2 py-1.5"></td>
-                    </tr>
-                  ))}
+                  ) : items.map(it => {
+                    const itemSizes = ((it as any).sizes || {}) as Record<string, number>
+                    return (
+                      <tr key={it.id} className={`border-b border-zinc-200 ${it.is_return ? 'bg-rose-50/50' : ''}`}>
+                        {showDate && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{it.line_date || ''}</td>}
+                        <td className="px-2 py-1.5 border-r border-zinc-200">{it.product_name || ''}</td>
+                        {showColor && <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{it.color || ''}</td>}
+                        {showSingleSize && !showSizeColumns && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{(it as any).size || ''}</td>}
+                        {sizeKeys.map(sz => {
+                          const n = Number(itemSizes[sz] || 0)
+                          return (
+                            <td key={sz} className={`px-1 py-1.5 border-r border-zinc-200 text-center tabular-nums ${n === 0 ? 'text-zinc-300' : ''}`}>
+                              {n > 0 ? n : '-'}
+                            </td>
+                          )
+                        })}
+                        <td className={`px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums font-medium ${it.is_return ? 'text-rose-700' : ''}`}>
+                          {Number(it.quantity).toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums">{Number(it.unit_price).toLocaleString()}</td>
+                        <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${it.is_return ? 'text-rose-700' : ''}`}>
+                          {Number(it.amount).toLocaleString()}
+                        </td>
+                      </tr>
+                    )
+                  })}
                 </tbody>
               </table>
             )
