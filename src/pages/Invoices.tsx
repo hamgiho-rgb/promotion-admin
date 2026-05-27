@@ -876,7 +876,16 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  <Input value={l.color || ''} onChange={e => updateLine(l.tempId, { color: e.target.value })} className="text-[11px] px-1.5 py-1" />
  </td>
  <td className="px-2 py-1">
- <Input value={l.size || ''} onChange={e => updateLine(l.tempId, { size: e.target.value })} className="text-[11px] px-1.5 py-1 text-center" placeholder="—" />
+ {l.sizes && Object.keys(l.sizes).length > 0 ? (
+   // 사이즈 분포 표시 (입고에서 자동 발행된 경우)
+   <div className="text-[10px] px-1 py-1 bg-blue-50 border border-blue-100 rounded text-center" title="사이즈 분포 (수량 변경하려면 입고에서 수정)">
+     {Object.entries(l.sizes)
+       .sort(([a], [b]) => a.localeCompare(b, undefined, { numeric: true }))
+       .map(([sz, n]) => `${sz}:${n}`).join(' · ')}
+   </div>
+ ) : (
+   <Input value={l.size || ''} onChange={e => updateLine(l.tempId, { size: e.target.value })} className="text-[11px] px-1.5 py-1 text-center" placeholder="—" />
+ )}
  </td>
  <td className="px-2 py-1">
  <Input type="number" value={l.quantity} onChange={e => updateLine(l.tempId, { quantity: Number(e.target.value) })} className="text-[11px] px-1.5 py-1 text-right tabular-nums" />
