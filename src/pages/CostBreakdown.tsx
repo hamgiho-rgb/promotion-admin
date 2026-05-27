@@ -385,9 +385,9 @@ export default function CostBreakdown() {
                               <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
                                 <th className="px-3 py-2">공급처</th>
                                 <th className="px-3 py-2">재료/항목명</th>
-                                <th className="px-3 py-2 text-right w-28">단가</th>
-                                <th className="px-3 py-2 text-right w-20">요척</th>
-                                <th className="px-3 py-2 text-right w-28">소계</th>
+                                <th className="px-3 py-2 text-right w-36">단가</th>
+                                <th className="px-3 py-2 text-right w-28">요척</th>
+                                <th className="px-3 py-2 text-right w-32">소계</th>
                                 <th className="px-3 py-2 w-10"></th>
                               </tr>
                             </thead>

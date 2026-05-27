@@ -84,6 +84,10 @@ export function InlineInput({ value, onCommit, type = 'text', step, className = 
       onChange={e => setLocal(e.target.value)}
       onCompositionStart={() => { composingRef.current = true }}
       onCompositionEnd={() => { composingRef.current = false }}
+      onFocus={e => {
+        // 클릭 시 전체 선택 — 숫자 0이나 기존 값 위에 바로 새 값 타이핑 가능
+        e.currentTarget.select()
+      }}
       onBlur={commit}
       onKeyDown={e => {
         if (e.key === 'Enter' && !composingRef.current) {
