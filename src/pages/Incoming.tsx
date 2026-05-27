@@ -569,6 +569,7 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
  const [saving, setSaving] = useState(false)
  const [error, setError] = useState<string | null>(null)
  const [view, setView] = useState<'cartons' | 'summary'>('cartons')
+ const [searchInline, setSearchInline] = useState('')
  const [dirty, setDirty] = useState(false)
 
  useEffect(() => {
@@ -893,7 +894,7 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
 
  {sizeKeys.length > 0 && (
  <div>
- <div className="flex items-center justify-between mb-3 gap-2">
+ <div className="flex items-center justify-between mb-2 gap-2 flex-wrap">
  <div className="flex items-center gap-2">
  <h3 className="text-[14px] font-semibold text-zinc-900">입고 라인 (박스 단위)</h3>
  {cartons.length > 0 && (
@@ -907,7 +908,7 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
  <button
  className={`px-3 py-1 text-[11px] font-medium rounded ${view === 'cartons' ? 'bg-white shadow-sm' : 'text-zinc-500'}`}
  onClick={() => setView('cartons')}
- >박스별</button>
+ >박스별 (수정)</button>
  <button
  className={`px-3 py-1 text-[11px] font-medium rounded ${view === 'summary' ? 'bg-white shadow-sm' : 'text-zinc-500'}`}
  onClick={() => setView('summary')}
@@ -916,6 +917,20 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
  <Button size="sm" onClick={addCarton}>＋ 박스 추가</Button>
  </div>
  </div>
+ {/* 검색창 — 두 뷰 모두에서 필터링 */}
+ {cartons.length > 0 && (
+   <div className="mb-3 relative">
+     <input
+       value={searchInline}
+       onChange={e => setSearchInline(e.target.value)}
+       placeholder="🔍 품번 / 품목명으로 검색 (양쪽 뷰 다 필터됨)"
+       className="w-full px-3 py-2 text-[12px] bg-zinc-50 border border-zinc-200 rounded-lg outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-100 placeholder:text-zinc-400"
+     />
+     {searchInline && (
+       <button onClick={() => setSearchInline('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-zinc-400 hover:text-zinc-700 text-sm">✕</button>
+     )}
+   </div>
+ )}
 
  {cartons.length === 0 ? (
  <div className="border-2 border-dashed border-zinc-200 rounded-xl p-8 text-center">
@@ -930,7 +945,16 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
  </div>
  ) : view === 'cartons' ? (
  <div className="space-y-2">
- {cartons.map(c => (
+ {searchInline && (
+   <div className="text-[11px] text-blue-700 bg-blue-50 border border-blue-200 rounded-lg px-3 py-1.5">
+     🔍 "{searchInline}" 검색 중 — 매치되는 박스만 표시
+   </div>
+ )}
+ {cartons.filter(c => {
+   const q = searchInline.trim().toLowerCase()
+   if (!q) return true
+   return (c.product_code || '').toLowerCase().includes(q) || (c.product_name || '').toLowerCase().includes(q)
+ }).map(c => (
  <div key={c.tempId} className="border border-zinc-200 rounded-xl p-3 hover:border-zinc-300 transition-colors">
  <div className="flex items-center gap-2 mb-2">
  <Badge>C/T {c.carton_no}</Badge>
@@ -976,13 +1000,24 @@ function IncomingDrawer({ open, onClose, editing, vendors, onSaved }: {
  </tr>
  </thead>
  <tbody>
- {Object.values(summary).map(s => (
- <tr key={s.code} className="border-t border-zinc-100">
- <td className="px-3 py-2 font-mono">{s.code}</td>
+ {Object.values(summary)
+   .filter(s => {
+     const q = searchInline.trim().toLowerCase()
+     if (!q) return true
+     return (s.code || '').toLowerCase().includes(q) || (s.name || '').toLowerCase().includes(q)
+   })
+   .map(s => (
+ <tr
+   key={s.code}
+   className="border-t border-zinc-100 hover:bg-blue-50/50 cursor-pointer"
+   onClick={() => { setSearchInline(s.code); setView('cartons') }}
+   title="클릭하면 박스별 보기로 이동 (이 품번만 필터)"
+ >
+ <td className="px-3 py-2 font-mono text-blue-700">{s.code}</td>
  <td className="px-3 py-2 truncate max-w-[200px]">{s.name}</td>
  {sizeKeys.map(k => <td key={k} className="px-2 py-2 text-center tabular-nums">{s.sizes[k] || 0}</td>)}
  <td className="px-3 py-2 text-right font-semibold tabular-nums">{s.total}</td>
- <td className="px-2 py-2 text-center text-zinc-500">{s.cartons}</td>
+ <td className="px-2 py-2 text-center text-zinc-500">{s.cartons}개 →</td>
  </tr>
  ))}
  <tr className="border-t-2 border-zinc-300 bg-zinc-50">
