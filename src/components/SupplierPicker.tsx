@@ -95,15 +95,28 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
     }
   }, [open])
 
-  // 스크롤/리사이즈 시 닫음
+  // 외부 스크롤/리사이즈 시 위치 재계산 (panel 내부 스크롤은 무시)
   useEffect(() => {
     if (!open) return
-    const close = () => setOpen(false)
-    window.addEventListener('scroll', close, true)
-    window.addEventListener('resize', close)
+    function onScroll(e: Event) {
+      // panel 내부 스크롤은 무시 (휠로 항목 보는 거)
+      if (panelRef.current?.contains(e.target as Node)) return
+      // 외부 스크롤 — 위치 재계산해서 따라가게
+      const rect = buttonRef.current?.getBoundingClientRect()
+      if (!rect) return
+      // 버튼이 화면 밖으로 나가면 닫기
+      if (rect.bottom < 0 || rect.top > window.innerHeight) { setOpen(false); return }
+      const width = Math.max(rect.width, 260)
+      let left = rect.left
+      if (left + width > window.innerWidth - 8) left = Math.max(8, window.innerWidth - width - 8)
+      setPanelPos({ top: rect.bottom + 4, left, width })
+    }
+    function onResize() { setOpen(false) }
+    window.addEventListener('scroll', onScroll, true)
+    window.addEventListener('resize', onResize)
     return () => {
-      window.removeEventListener('scroll', close, true)
-      window.removeEventListener('resize', close)
+      window.removeEventListener('scroll', onScroll, true)
+      window.removeEventListener('resize', onResize)
     }
   }, [open])
 
@@ -139,8 +152,8 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
           ref={panelRef}
           style={{ position: 'fixed', top: panelPos.top, left: panelPos.left, width: panelPos.width, zIndex: 100 }}
           className="bg-white border border-zinc-300 rounded-lg shadow-xl overflow-hidden">
-          {/* 검색창 */}
-          <div className="p-2 border-b border-zinc-100">
+          {/* 검색창 + 신규 등록 버튼 */}
+          <div className="p-2 border-b border-zinc-100 flex items-center gap-1.5">
             <input
               ref={inputRef}
               value={search}
@@ -155,9 +168,17 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
                 }
                 else if (e.key === 'Escape') { e.preventDefault(); setOpen(false) }
               }}
-              placeholder="🔍 공급처명 / 분류 / 메모 검색"
-              className="w-full px-2.5 py-1.5 text-[12px] bg-zinc-50 border border-zinc-200 rounded outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-100"
+              placeholder="🔍 공급처명 / 분류 검색"
+              className="flex-1 min-w-0 px-2.5 py-1.5 text-[12px] bg-zinc-50 border border-zinc-200 rounded outline-none focus:border-zinc-400 focus:ring-1 focus:ring-zinc-100"
             />
+            <button
+              type="button"
+              onClick={() => { setOpen(false); setDrawerOpen(true) }}
+              title="새 공급처 등록"
+              className="flex-shrink-0 px-2.5 py-1.5 text-[12px] font-medium bg-blue-600 text-white rounded hover:bg-blue-700 whitespace-nowrap"
+            >
+              ＋ 신규
+            </button>
           </div>
 
           {/* 리스트 */}
