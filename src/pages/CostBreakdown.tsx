@@ -13,6 +13,30 @@ export default function CostBreakdown() {
   const [selectedId, setSelectedId] = useState<string>('')
   const [items, setItems] = useState<CostItem[]>([])
   const [copyModalOpen, setCopyModalOpen] = useState(false)
+
+  // 좌측 거래처/브랜드 접기 상태 (localStorage 저장)
+  const COLLAPSE_KEY = 'cost_breakdown_collapsed'
+  const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+    try { const raw = localStorage.getItem(COLLAPSE_KEY); return new Set(raw ? JSON.parse(raw) : []) }
+    catch { return new Set() }
+  })
+  function toggleCollapse(key: string) {
+    setCollapsed(prev => {
+      const next = new Set(prev)
+      if (next.has(key)) next.delete(key); else next.add(key)
+      try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(next))) } catch {}
+      return next
+    })
+  }
+  function collapseAll(keys: string[]) {
+    const next = new Set([...collapsed, ...keys])
+    setCollapsed(next)
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(next))) } catch {}
+  }
+  function expandAll() {
+    setCollapsed(new Set())
+    try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([])) } catch {}
+  }
   const [loading, setLoading] = useState(true)
   const [productSearch, setProductSearch] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
@@ -161,7 +185,21 @@ export default function CostBreakdown() {
           {/* 좌측 상품 목록 */}
           <aside className="lg:col-span-3 bg-white border border-zinc-200 rounded-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100vh - 200px)' }}>
             <div className="p-3 border-b border-zinc-100">
-              <Input value={productSearch} onChange={e => setProductSearch(e.target.value)} />
+              <Input value={productSearch} onChange={e => setProductSearch(e.target.value)} placeholder="🔍 품번 / 품목명 / 컬러" />
+              <div className="flex items-center gap-2 mt-2 text-[10px]">
+                <button
+                  onClick={() => {
+                    // 모든 거래처 키 모음
+                    const vendorNames = Array.from(new Set(filteredProducts.map(p => customers.find(c => c.id === p.vendor_id)?.name || '거래처 미지정')))
+                    collapseAll(vendorNames.map(v => `vendor:${v}`))
+                  }}
+                  className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                >▶ 모두 접기</button>
+                <button
+                  onClick={expandAll}
+                  className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
+                >▼ 모두 펼치기</button>
+              </div>
             </div>
             <div className="flex-1 overflow-y-auto">
               {(() => {
@@ -185,11 +223,18 @@ export default function CostBreakdown() {
                   const brandKeys = Object.keys(brands).sort()
                   const vendorTotal = brandKeys.reduce((s, b) => s + brands[b].length, 0)
                   const onlyBrand = brandKeys.length === 1 ? brandKeys[0] : null
+                  const vendorKey = `vendor:${vName}`
+                  const vendorCollapsed = collapsed.has(vendorKey)
                   return (
                     <div key={vName}>
-                      {/* 회사 헤더 */}
-                      <div className="sticky top-0 z-[1] px-3 py-2.5 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center justify-between border-b border-zinc-700">
+                      {/* 회사 헤더 — 클릭하면 접기/펼치기 */}
+                      <button
+                        type="button"
+                        onClick={() => toggleCollapse(vendorKey)}
+                        className="sticky top-0 z-[1] w-full px-3 py-2.5 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center justify-between border-b border-zinc-700 hover:from-zinc-800 hover:to-zinc-700 transition-colors"
+                      >
                         <div className="flex items-center gap-2 min-w-0">
+                          <span className="text-[10px] text-white/60 flex-shrink-0">{vendorCollapsed ? '▶' : '▼'}</span>
                           <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold flex-shrink-0">
                             {vName.slice(0, 1)}
                           </div>
@@ -201,21 +246,28 @@ export default function CostBreakdown() {
                           )}
                         </div>
                         <span className="text-[10px] tabular-nums text-white/60 flex-shrink-0">{vendorTotal}</span>
-                      </div>
-                      {/* 브랜드별 상품 */}
-                      {brandKeys.map(bName => {
+                      </button>
+                      {/* 브랜드별 상품 — 거래처 펼침 상태일 때만 */}
+                      {!vendorCollapsed && brandKeys.map(bName => {
                         const list = brands[bName]
                         const showBrandSep = brandKeys.length > 1
+                        const brandKey = `brand:${vName}::${bName}`
+                        const brandCollapsed = collapsed.has(brandKey)
                         return (
                           <div key={bName}>
                             {showBrandSep && (
-                              <div className="px-3 py-1.5 bg-zinc-50 border-b border-zinc-100 flex items-center gap-1.5">
+                              <button
+                                type="button"
+                                onClick={() => toggleCollapse(brandKey)}
+                                className="w-full px-3 py-1.5 bg-zinc-50 hover:bg-zinc-100 border-b border-zinc-100 flex items-center gap-1.5 transition-colors"
+                              >
+                                <span className="text-[9px] text-zinc-400">{brandCollapsed ? '▶' : '▼'}</span>
                                 <span className="inline-block w-1 h-3 rounded-full bg-blue-400" />
                                 <span className="text-[11px] font-semibold text-zinc-700">{bName || '(브랜드 없음)'}</span>
                                 <span className="text-[10px] text-zinc-400 ml-auto tabular-nums">{list.length}</span>
-                              </div>
+                              </button>
                             )}
-                            {list.map(p => (
+                            {(!showBrandSep || !brandCollapsed) && list.map(p => (
                               <button
                                 key={p.id}
                                 onClick={() => setSelectedId(p.id)}
