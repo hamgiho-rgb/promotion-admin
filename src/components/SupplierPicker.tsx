@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor } from '@/lib/types'
 import { Button, Input, Label, Drawer } from '@/components/ui'
@@ -132,12 +133,12 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
         <span className="text-zinc-400 text-[10px] flex-shrink-0">▼</span>
       </button>
 
-      {/* 드롭다운 패널 — fixed로 띄워서 table cell layout과 무관 */}
-      {open && panelPos && (
+      {/* 드롭다운 패널 — Portal로 body에 직접 띄움 (부모 overflow/transform 영향 안 받음) */}
+      {open && panelPos && createPortal(
         <div
           ref={panelRef}
-          style={{ position: 'fixed', top: panelPos.top, left: panelPos.left, width: panelPos.width, zIndex: 50 }}
-          className="bg-white border border-zinc-300 rounded-lg shadow-lg overflow-hidden">
+          style={{ position: 'fixed', top: panelPos.top, left: panelPos.left, width: panelPos.width, zIndex: 100 }}
+          className="bg-white border border-zinc-300 rounded-lg shadow-xl overflow-hidden">
           {/* 검색창 */}
           <div className="p-2 border-b border-zinc-100">
             <input
@@ -202,7 +203,8 @@ export default function SupplierPicker({ value, suppliers, onChange, onSuppliers
           >
             ＋ 새 공급처 등록
           </button>
-        </div>
+        </div>,
+        document.body
       )}
 
       <NewSupplierDrawer
