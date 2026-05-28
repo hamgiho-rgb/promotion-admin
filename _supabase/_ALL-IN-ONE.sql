@@ -203,6 +203,30 @@ alter table activity_logs enable row level security;
 drop policy if exists "anon_all_activity_logs" on activity_logs;
 create policy "anon_all_activity_logs" on activity_logs for all using (true) with check (true);
 
+-- ────────────────────────────────────────
+-- 10. 휴지통 중복 충돌 해결 — partial unique index
+--     기존 products의 UNIQUE(vendor_id, code) 는 휴지통 행도 포함해서
+--     같은 품번을 다시 등록하려고 하면 충돌남.
+--     → 살아있는 행 (deleted_at IS NULL) 에만 적용되는 partial unique index 로 교체.
+-- ────────────────────────────────────────
+do $$
+begin
+  -- 기존 UNIQUE 제약 이름은 보통 products_vendor_id_code_key. 있으면 제거.
+  if exists (
+    select 1 from pg_constraint
+    where conrelid = 'products'::regclass
+      and contype = 'u'
+      and conname = 'products_vendor_id_code_key'
+  ) then
+    alter table products drop constraint products_vendor_id_code_key;
+  end if;
+end$$;
+
+-- 살아있는 상품에 대해서만 (vendor_id, code) 유일성 적용
+create unique index if not exists products_vendor_code_alive_uq
+  on products(vendor_id, code)
+  where deleted_at is null;
+
 -- ════════════════════════════════════════════════════════════════════
 -- 끝! 다 한 번에 실행됨. 다시 실행해도 안전 (멱등).
 -- ════════════════════════════════════════════════════════════════════

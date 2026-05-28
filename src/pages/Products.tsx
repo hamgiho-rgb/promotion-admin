@@ -442,7 +442,29 @@ function ProductDrawer({ open, onClose, editing, vendors, onSaved, onVendorsRelo
  ? await supabase.from('products').update(payload).eq('id', editing.id)
  : await supabase.from('products').insert(payload)
  setSaving(false)
- if (result.error) return setError(result.error.message)
+ if (result.error) {
+   // 중복 키 충돌이면 휴지통에 같은 품번이 있는지 확인 → 복구 옵션 제공
+   const msg = result.error.message.toLowerCase()
+   if (!editing && (msg.includes('duplicate') || msg.includes('unique'))) {
+     const { data: trashed } = await supabase
+       .from('products')
+       .select('id, code, name')
+       .eq('vendor_id', payload.vendor_id!)
+       .eq('code', payload.code!)
+       .not('deleted_at', 'is', null)
+       .maybeSingle()
+     if (trashed) {
+       if (confirm(`품번 '${payload.code}' 가 휴지통에 있습니다.\n('${trashed.name}')\n\n휴지통에서 복구할까요?\n[취소] 누르면 다른 품번으로 등록`)) {
+         await supabase.from('products').update({ deleted_at: null, ...payload }).eq('id', trashed.id)
+         setDirty(false)
+         onSaved()
+         return
+       }
+       return setError(`품번 '${payload.code}' 가 휴지통에 있어요. 다른 품번을 쓰거나 휴지통에서 복구하세요.`)
+     }
+   }
+   return setError(result.error.message)
+ }
  setDirty(false)
  onSaved()
  }

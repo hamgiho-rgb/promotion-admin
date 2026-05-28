@@ -366,7 +366,29 @@ export default function FlatImportButton({ entity, onImported }: {
             notes: clean(field(r, 'notes')),
           }
           const { error } = await supabase.from('products').insert(payload)
-          if (error) { fail++; errors.push(`${code}: ${error.message}`) }
+          if (error) {
+            // 중복 키 → 휴지통 상품 자동 복구 시도
+            const msg = error.message.toLowerCase()
+            if (msg.includes('duplicate') || msg.includes('unique')) {
+              const { data: trashed } = await supabase
+                .from('products')
+                .select('id')
+                .eq('vendor_id', vId)
+                .eq('code', code)
+                .not('deleted_at', 'is', null)
+                .maybeSingle()
+              if (trashed) {
+                const { error: upErr } = await supabase
+                  .from('products')
+                  .update({ deleted_at: null, ...payload })
+                  .eq('id', trashed.id)
+                if (upErr) { fail++; errors.push(`${code}: 휴지통 복구 실패 - ${upErr.message}`) }
+                else { ok++; errors.push(`↻ ${code}: 휴지통에서 복구됨`) }
+                continue
+              }
+            }
+            fail++; errors.push(`${code}: ${error.message}`)
+          }
           else ok++
         }
       }
