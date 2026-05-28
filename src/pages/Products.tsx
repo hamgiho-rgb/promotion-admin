@@ -19,6 +19,30 @@ export default function Products() {
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Product | null>(null)
 
+ // 거래처별 접기 상태 (localStorage 저장)
+ const COLLAPSE_KEY = 'products_collapsed_vendors'
+ const [collapsed, setCollapsed] = useState<Set<string>>(() => {
+   try { const raw = localStorage.getItem(COLLAPSE_KEY); return new Set(raw ? JSON.parse(raw) : []) }
+   catch { return new Set() }
+ })
+ function toggleCollapse(key: string) {
+   setCollapsed(prev => {
+     const next = new Set(prev)
+     if (next.has(key)) next.delete(key); else next.add(key)
+     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(next))) } catch {}
+     return next
+   })
+ }
+ function collapseAll(keys: string[]) {
+   const next = new Set([...collapsed, ...keys])
+   setCollapsed(next)
+   try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(next))) } catch {}
+ }
+ function expandAll() {
+   setCollapsed(new Set())
+   try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([])) } catch {}
+ }
+
  async function load() {
  setLoading(true)
  const [{ data: pData }, { data: vData }, { data: mData }] = await Promise.all([
@@ -130,7 +154,19 @@ export default function Products() {
      ⚠ 판매가 미입력 {missingPriceCount}개
    </button>
  )}
- <span className="text-[12px] text-zinc-500 ml-auto">{filtered.length}개 상품</span>
+ <div className="ml-auto flex items-center gap-2">
+   <button
+     onClick={() => collapseAll(groupedVendorIds)}
+     className="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+     title="모든 거래처 접기"
+   >▾ 전체 접기</button>
+   <button
+     onClick={expandAll}
+     className="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50"
+     title="모든 거래처 펼치기"
+   >▸ 전체 펼치기</button>
+   <span className="text-[12px] text-zinc-500">{filtered.length}개 상품</span>
+ </div>
  </div>
 
  {loading ? (
@@ -148,10 +184,15 @@ export default function Products() {
  const brands = Array.from(new Set(grouped[vId].map(p => p.brand).filter(Boolean))) as string[]
  const totalPrice = grouped[vId].reduce((s, p) => s + Number(p.selling_price), 0)
  const withCostCount = grouped[vId].filter(p => (margins.get(p.id)?.production_cost || 0) > 0).length
+ const isCollapsed = collapsed.has(vId)
  return (
  <div key={vId}>
- <div className="px-4 py-3 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center justify-between">
+ <button
+   onClick={() => toggleCollapse(vId)}
+   className="w-full px-4 py-3 bg-gradient-to-r from-zinc-900 to-zinc-800 hover:from-zinc-800 hover:to-zinc-700 text-white flex items-center justify-between text-left transition-colors"
+ >
  <div className="flex items-center gap-3 min-w-0">
+ <span className={`text-white/70 text-[10px] transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
  <div className="w-8 h-8 rounded-full bg-white/15 flex items-center justify-center text-[13px] font-bold flex-shrink-0">
  {vendorName(vId).slice(0, 1)}
  </div>
@@ -172,7 +213,8 @@ export default function Products() {
  <div className="text-[10px] text-white/60 uppercase tracking-wider">매출가 합계</div>
  <div className="text-[15px] font-bold tabular-nums">₩{totalPrice.toLocaleString()}</div>
  </div>
- </div>
+ </button>
+ {!isCollapsed && (
  <table className="w-full text-[13px]">
  <thead>
  <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
@@ -243,6 +285,7 @@ export default function Products() {
  })}
  </tbody>
  </table>
+ )}
  </div>
  )
  })}
