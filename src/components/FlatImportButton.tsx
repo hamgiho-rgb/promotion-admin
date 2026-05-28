@@ -10,15 +10,15 @@ import { findVendorByFuzzyName } from '@/lib/vendorMatch'
  * ───────────────────────────────────────────── */
 const ALIASES: Record<string, string[]> = {
   // products
-  code: ['품번', '상품코드', '제품코드', 'code', 'sku', 'productcode', 'item code', 'style code', 'style number', 'number'],
-  name_ko: ['품목명', '품명', '상품명', '제품명', '상품명(국문)', '상품명국문', '국문명', 'name', 'name_ko', 'name(ko)', 'item name', 'item name (kr)'],
-  name_en: ['영문명', '영문 품목명', '상품명(영문)', '상품명영문', 'english name', 'item name (en)', 'name_en', 'name(en)', 'style name'],
-  color: ['컬러', '색상', '컬러명', 'color', 'colour'],
-  selling_price: ['판매가', '납품가', '단가', 'price', 'sellingprice', 'unitprice'],
+  code: ['품번', '상품코드', '제품코드', '상품번호', '제품번호', '품목번호', 'code', 'sku', 'productcode', 'item code', 'style code', 'style number', 'number', 'product number', 'item number'],
+  name_ko: ['품목명', '품명', '상품명', '제품명', '상품명(국문)', '상품명국문', '국문명', '한글명', '국문', 'name', 'name_ko', 'name(ko)', 'item name', 'item name (kr)'],
+  name_en: ['영문명', '영문 품목명', '상품명(영문)', '상품명영문', '영문', '영어명', 'english name', 'item name (en)', 'name_en', 'name(en)', 'style name', 'english'],
+  color: ['컬러', '색상', '컬러명', '칼라', '칼라명', 'color', 'colour'],
+  selling_price: ['판매가', '납품가', '단가', '정상가', '소비자가', '소비자가격', '판매가격', '도매가', '도매가격', 'price', 'sellingprice', 'unitprice', 'retail', 'retail price'],
   // common
   vendor_name: ['거래처명', '거래처', '회사', '회사명', 'vendor', 'customer', 'company'],
   brand: ['브랜드', '브랜드명', 'brand'],
-  notes: ['메모', '비고', 'memo', 'notes', 'remark', 'remarks'],
+  notes: ['메모', '비고', '혼용율', '소재', '재질', '원단', '특이사항', 'memo', 'notes', 'remark', 'remarks', 'material', 'composition'],
   // customers extra
   company_name: ['회사명', '모회사', 'companyname', 'parent company'],
   business_number: ['사업자번호', '사업자 번호', '사업자등록번호', 'business number'],
@@ -279,7 +279,10 @@ export default function FlatImportButton({ entity, onImported }: {
         for (const r of rows) {
           const vName = clean(field(r, 'vendor_name'))
           const code = clean(field(r, 'code'))
-          const name = clean(field(r, 'name_ko'))
+          const nameKo = clean(field(r, 'name_ko'))
+          const nameEn = clean(field(r, 'name_en'))
+          // 한글명이 없으면 영문명으로 대체 (영어로 된 양식도 import 가능)
+          const name = nameKo || nameEn
           if (!code || !name) { fail++; errors.push('품번 또는 품목명 누락'); continue }
 
           let vId: string | undefined
@@ -306,11 +309,12 @@ export default function FlatImportButton({ entity, onImported }: {
 
           if (!vId) { fail++; errors.push(`${code}: 거래처 미지정`); continue }
 
+          // name에 영문명 fallback 적용된 경우, name_en은 그대로 (둘 다 같아도 OK)
           const payload = {
             vendor_id: vId,
             code,
             name,
-            name_en: clean(field(r, 'name_en')),
+            name_en: nameEn || null,
             brand: clean(field(r, 'brand')),
             color: clean(field(r, 'color')),
             selling_price: Number(field(r, 'selling_price') || 0),
