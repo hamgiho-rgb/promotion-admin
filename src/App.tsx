@@ -7,6 +7,7 @@ import Suppliers from '@/pages/Suppliers'
 import Products from '@/pages/Products'
 import ProductDetail from '@/pages/ProductDetail'
 import CostBreakdown from '@/pages/CostBreakdown'
+import CostBreakdownPrint from '@/pages/CostBreakdownPrint'
 import Fabric from '@/pages/Fabric'
 import IncomingPage from '@/pages/Incoming'
 import IncomingPrint from '@/pages/IncomingPrint'
@@ -32,6 +33,7 @@ export default function App() {
       <Route path="/quotations/:id/print" element={<QuotationPrint />} />
       <Route path="/incoming/:id/print"   element={<IncomingPrint />} />
       <Route path="/supplier-invoices/:id/print" element={<SupplierInvoicePrint />} />
+      <Route path="/cost/:productId/print" element={<CostBreakdownPrint />} />
 
       {/* 그 외에는 사이드바 레이아웃 */}
       <Route path="/*" element={

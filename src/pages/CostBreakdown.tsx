@@ -5,6 +5,7 @@ import type { Product, Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/components/ui'
 import SupplierPicker from '@/components/SupplierPicker'
 import CostImportButton from '@/components/CostImportButton'
+import { exportSheet } from '@/lib/exportXlsx'
 
 export default function CostBreakdown() {
   const navigate = useNavigate()
@@ -147,6 +148,44 @@ export default function CostBreakdown() {
     if (!confirm('이 항목을 삭제할까요?')) return
     await supabase.from('cost_items').delete().eq('id', id)
     loadItems(selectedId)
+  }
+
+  /** 현재 선택 상품의 원가내역을 엑셀로 내보내기 */
+  function exportCurrentToExcel() {
+    if (!selectedProduct) return
+    const customerName = customers.find(c => c.id === selectedProduct.vendor_id)?.name || '거래처 미지정'
+    const sellingPrice = Number(selectedProduct.selling_price || 0)
+    const totalCost = items.reduce((s, i) => s + Number(i.subtotal || 0), 0)
+    const marginVal = sellingPrice - totalCost
+    const marginPct = sellingPrice ? (marginVal / sellingPrice) * 100 : 0
+
+    const rows: any[][] = []
+    // 상품 정보
+    rows.push(['원가내역서'])
+    rows.push([])
+    rows.push(['거래처', customerName, '품번', selectedProduct.code])
+    rows.push(['품목명', selectedProduct.name, '컬러', selectedProduct.color || ''])
+    rows.push(['브랜드', selectedProduct.brand || '', '판매가', sellingPrice])
+    rows.push([])
+    // 원가 항목 헤더
+    rows.push(['공급처', '재료/공정', '단가', '요척', '소계'])
+    for (const it of items) {
+      const supplierName = suppliers.find(s => s.id === it.supplier_id)?.name || '미지정'
+      rows.push([
+        supplierName,
+        it.item_name || '',
+        Number(it.unit_price || 0),
+        Number(it.yards || 0),
+        Math.round(Number(it.subtotal || 0)),
+      ])
+    }
+    rows.push([])
+    rows.push(['', '', '', '생산원가 합계', Math.round(totalCost)])
+    rows.push(['', '', '', '판매가', sellingPrice])
+    rows.push(['', '', '', `마진 (${marginPct.toFixed(1)}%)`, Math.round(marginVal)])
+
+    const safeCode = (selectedProduct.code || 'product').replace(/[\\/:*?"<>|]/g, '_')
+    exportSheet(rows, '원가내역서', `원가내역서_${safeCode}`)
   }
 
   const filteredProducts = products.filter(p =>
@@ -336,8 +375,24 @@ export default function CostBreakdown() {
                     >
                       📋 원가 복사
                     </button>
+                    <button
+                      onClick={exportCurrentToExcel}
+                      disabled={items.length === 0}
+                      className="text-[12px] px-3 py-1.5 rounded-md bg-violet-50 hover:bg-violet-100 disabled:bg-zinc-100 disabled:text-zinc-400 text-violet-700 border border-violet-200 disabled:border-zinc-200 font-medium whitespace-nowrap"
+                      title="이 상품의 원가내역을 엑셀로 다운로드"
+                    >
+                      📥 엑셀
+                    </button>
+                    <button
+                      onClick={() => window.open(`/cost/${selectedProduct.id}/print`, '_blank')}
+                      disabled={items.length === 0}
+                      className="text-[12px] px-3 py-1.5 rounded-md bg-zinc-900 hover:bg-zinc-800 disabled:bg-zinc-200 disabled:text-zinc-400 text-white font-medium whitespace-nowrap"
+                      title="원가내역서 인쇄 / PDF 저장"
+                    >
+                      🖨️ 인쇄
+                    </button>
                     <button onClick={() => navigate(`/products/${selectedProduct.id}`)} className="text-[12px] text-blue-600 hover:underline whitespace-nowrap">
-                      상품 상세 보기 →
+                      상품 상세 →
                     </button>
                   </div>
                 </div>
