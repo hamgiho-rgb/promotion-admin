@@ -79,9 +79,10 @@ export default function CostBreakdown() {
   async function loadAll() {
     setLoading(true)
     const [{ data: pData }, { data: sData }, { data: cData }] = await Promise.all([
-      supabase.from('products').select('*').order('name'),
-      supabase.from('vendors').select('*').eq('vendor_type', 'supplier').order('name'),
-      supabase.from('vendors').select('*').eq('vendor_type', 'customer').order('name'),
+      // 휴지통(deleted_at not null)에 들어간 상품은 제외
+      supabase.from('products').select('*').is('deleted_at', null).order('name'),
+      supabase.from('vendors').select('*').eq('vendor_type', 'supplier').is('deleted_at', null).order('name'),
+      supabase.from('vendors').select('*').eq('vendor_type', 'customer').is('deleted_at', null).order('name'),
     ])
     setProducts(pData ?? [])
     setSuppliers(sData ?? [])
