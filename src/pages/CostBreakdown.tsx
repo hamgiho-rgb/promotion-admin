@@ -6,6 +6,7 @@ import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/
 import SupplierPicker from '@/components/SupplierPicker'
 import CostImportButton from '@/components/CostImportButton'
 import { exportSheet } from '@/lib/exportXlsx'
+import { softDeleteMany } from '@/lib/trash'
 
 export default function CostBreakdown() {
   const navigate = useNavigate()
@@ -42,6 +43,38 @@ export default function CostBreakdown() {
   const [loading, setLoading] = useState(true)
   const [productSearch, setProductSearch] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  // 일괄 선택 (상품 삭제용)
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedProducts, setSelectedProducts] = useState<Set<string>>(new Set())
+  function toggleSelectProduct(id: string) {
+    setSelectedProducts(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+  function selectProducts(ids: string[], checked: boolean) {
+    setSelectedProducts(prev => {
+      const next = new Set(prev)
+      if (checked) ids.forEach(id => next.add(id))
+      else ids.forEach(id => next.delete(id))
+      return next
+    })
+  }
+  function clearSelectedProducts() { setSelectedProducts(new Set()) }
+  async function handleBulkDeleteProducts() {
+    const ids = Array.from(selectedProducts)
+    if (ids.length === 0) return
+    if (!confirm(`선택한 ${ids.length}개 상품을 휴지통으로 옮길까요?\n30일 안에 휴지통에서 복구 가능합니다.\n\n⚠ 상품과 함께 그 상품의 원가 항목도 함께 사라집니다.`)) return
+    const { error } = await softDeleteMany('products', ids)
+    if (error) { alert('삭제 실패: ' + error.message); return }
+    clearSelectedProducts()
+    setSelectMode(false)
+    // 선택중이던 상품이 지워졌으면 선택 해제
+    if (selectedId && ids.includes(selectedId)) setSelectedId('')
+    await loadAll()
+  }
 
   async function loadAll() {
     setLoading(true)
@@ -227,21 +260,52 @@ export default function CostBreakdown() {
           <aside className="lg:col-span-3 bg-white border border-zinc-200 rounded-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100vh - 200px)' }}>
             <div className="p-3 border-b border-zinc-100">
               <Input value={productSearch} onChange={e => setProductSearch(e.target.value)} placeholder="🔍 품번 / 품목명 / 컬러" />
-              <div className="flex items-center gap-2 mt-2 text-[10px]">
+              <div className="flex items-center gap-2 mt-2 text-[10px] flex-wrap">
                 <button
                   onClick={() => {
-                    // 모든 거래처 키 모음
                     const vendorNames = Array.from(new Set(filteredProducts.map(p => customers.find(c => c.id === p.vendor_id)?.name || '거래처 미지정')))
                     collapseAll(vendorNames.map(v => `vendor:${v}`))
                   }}
                   className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
-                >▶ 모두 접기</button>
+                >▶ 접기</button>
                 <button
                   onClick={expandAll}
                   className="px-2 py-0.5 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700"
-                >▼ 모두 펼치기</button>
+                >▼ 펼치기</button>
+                <button
+                  onClick={() => { setSelectMode(m => !m); if (selectMode) clearSelectedProducts() }}
+                  className={`px-2 py-0.5 rounded transition-colors ml-auto ${selectMode ? 'bg-rose-500 text-white hover:bg-rose-600' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'}`}
+                  title="여러 상품을 한꺼번에 휴지통으로 옮기기"
+                >
+                  {selectMode ? '✕ 선택 해제' : '☐ 일괄 선택'}
+                </button>
               </div>
             </div>
+
+            {/* 선택 액션 바 */}
+            {selectMode && selectedProducts.size > 0 && (
+              <div className="px-3 py-2 bg-rose-50 border-b border-rose-200 flex items-center gap-2 flex-wrap text-[11px]">
+                <span className="font-semibold text-rose-800">✓ {selectedProducts.size}개 선택</span>
+                <button
+                  onClick={() => selectProducts(filteredProducts.map(p => p.id), true)}
+                  className="px-2 py-0.5 rounded bg-white border border-rose-200 text-rose-700 hover:bg-rose-100"
+                >
+                  표시 {filteredProducts.length}개 모두
+                </button>
+                <button
+                  onClick={clearSelectedProducts}
+                  className="px-2 py-0.5 rounded bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+                >
+                  해제
+                </button>
+                <button
+                  onClick={handleBulkDeleteProducts}
+                  className="ml-auto px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-medium"
+                >
+                  🗑 휴지통으로 ({selectedProducts.size})
+                </button>
+              </div>
+            )}
             <div className="flex-1 overflow-y-auto">
               {(() => {
                 const vendorName = (id: string) => customers.find(c => c.id === id)?.name || '거래처 미지정'
@@ -266,28 +330,44 @@ export default function CostBreakdown() {
                   const onlyBrand = brandKeys.length === 1 ? brandKeys[0] : null
                   const vendorKey = `vendor:${vName}`
                   const vendorCollapsed = collapsed.has(vendorKey)
+                  // 거래처에 속한 모든 상품 ID 모음
+                  const allVendorProductIds = brandKeys.flatMap(b => brands[b].map(p => p.id))
+                  const allVendorSelected = allVendorProductIds.length > 0 && allVendorProductIds.every(id => selectedProducts.has(id))
+                  const someVendorSelected = allVendorProductIds.some(id => selectedProducts.has(id))
                   return (
                     <div key={vName}>
                       {/* 회사 헤더 — 클릭하면 접기/펼치기 */}
-                      <button
-                        type="button"
-                        onClick={() => toggleCollapse(vendorKey)}
-                        className="sticky top-0 z-[1] w-full px-3 py-2.5 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center justify-between border-b border-zinc-700 hover:from-zinc-800 hover:to-zinc-700 transition-colors"
-                      >
-                        <div className="flex items-center gap-2 min-w-0">
-                          <span className="text-[10px] text-white/60 flex-shrink-0">{vendorCollapsed ? '▶' : '▼'}</span>
-                          <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold flex-shrink-0">
-                            {vName.slice(0, 1)}
+                      <div className="sticky top-0 z-[1] w-full px-3 py-2.5 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center gap-2 border-b border-zinc-700">
+                        {selectMode && (
+                          <input
+                            type="checkbox"
+                            checked={allVendorSelected}
+                            ref={el => { if (el) el.indeterminate = someVendorSelected && !allVendorSelected }}
+                            onChange={e => selectProducts(allVendorProductIds, e.target.checked)}
+                            className="w-3.5 h-3.5 rounded cursor-pointer flex-shrink-0"
+                            title="이 거래처의 모든 상품 선택"
+                          />
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => toggleCollapse(vendorKey)}
+                          className="flex-1 flex items-center justify-between text-left hover:opacity-90 min-w-0"
+                        >
+                          <div className="flex items-center gap-2 min-w-0">
+                            <span className="text-[10px] text-white/60 flex-shrink-0">{vendorCollapsed ? '▶' : '▼'}</span>
+                            <div className="w-6 h-6 rounded-full bg-white/15 flex items-center justify-center text-[11px] font-bold flex-shrink-0">
+                              {vName.slice(0, 1)}
+                            </div>
+                            <span className="font-semibold text-[13px] truncate">{vName}</span>
+                            {onlyBrand && (
+                              <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white/90 font-medium flex-shrink-0">
+                                {onlyBrand}
+                              </span>
+                            )}
                           </div>
-                          <span className="font-semibold text-[13px] truncate">{vName}</span>
-                          {onlyBrand && (
-                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-white/15 text-white/90 font-medium flex-shrink-0">
-                              {onlyBrand}
-                            </span>
-                          )}
-                        </div>
-                        <span className="text-[10px] tabular-nums text-white/60 flex-shrink-0">{vendorTotal}</span>
-                      </button>
+                          <span className="text-[10px] tabular-nums text-white/60 flex-shrink-0">{vendorTotal}</span>
+                        </button>
+                      </div>
                       {/* 브랜드별 상품 — 거래처 펼침 상태일 때만 */}
                       {!vendorCollapsed && brandKeys.map(bName => {
                         const list = brands[bName]
@@ -308,28 +388,47 @@ export default function CostBreakdown() {
                                 <span className="text-[10px] text-zinc-400 ml-auto tabular-nums">{list.length}</span>
                               </button>
                             )}
-                            {(!showBrandSep || !brandCollapsed) && list.map(p => (
-                              <button
-                                key={p.id}
-                                onClick={() => setSelectedId(p.id)}
-                                className={`group w-full text-left px-3 py-2.5 border-b border-zinc-50 transition-colors relative ${
-                                  selectedId === p.id
-                                    ? 'bg-zinc-900 text-white'
-                                    : 'hover:bg-blue-50/60'
-                                }`}
-                              >
-                                {selectedId === p.id && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400" />}
-                                <div className={`text-[10px] font-mono truncate ${selectedId === p.id ? 'text-blue-300' : 'text-zinc-400'}`}>
-                                  {p.code}
+                            {(!showBrandSep || !brandCollapsed) && list.map(p => {
+                              const isPicked = selectedProducts.has(p.id)
+                              return (
+                                <div
+                                  key={p.id}
+                                  className={`group w-full flex items-center border-b border-zinc-50 transition-colors relative ${
+                                    selectedId === p.id
+                                      ? 'bg-zinc-900 text-white'
+                                      : isPicked
+                                        ? 'bg-rose-50'
+                                        : 'hover:bg-blue-50/60'
+                                  }`}
+                                >
+                                  {selectedId === p.id && <span className="absolute left-0 top-0 bottom-0 w-1 bg-blue-400" />}
+                                  {selectMode && (
+                                    <label className="pl-3 pr-1 py-2.5 cursor-pointer flex-shrink-0" onClick={e => e.stopPropagation()}>
+                                      <input
+                                        type="checkbox"
+                                        checked={isPicked}
+                                        onChange={() => toggleSelectProduct(p.id)}
+                                        className="w-4 h-4 rounded cursor-pointer"
+                                      />
+                                    </label>
+                                  )}
+                                  <button
+                                    onClick={() => setSelectedId(p.id)}
+                                    className="flex-1 text-left px-3 py-2.5 min-w-0"
+                                  >
+                                    <div className={`text-[10px] font-mono truncate ${selectedId === p.id ? 'text-blue-300' : 'text-zinc-400'}`}>
+                                      {p.code}
+                                    </div>
+                                    <div className="text-[12.5px] font-medium truncate leading-tight mt-0.5">{p.name}</div>
+                                    {(p.color || p.name_en) && (
+                                      <div className={`text-[10px] mt-0.5 truncate ${selectedId === p.id ? 'text-zinc-400' : 'text-zinc-500'}`}>
+                                        {p.color}{p.color && p.name_en ? ' · ' : ''}{p.name_en}
+                                      </div>
+                                    )}
+                                  </button>
                                 </div>
-                                <div className="text-[12.5px] font-medium truncate leading-tight mt-0.5">{p.name}</div>
-                                {(p.color || p.name_en) && (
-                                  <div className={`text-[10px] mt-0.5 truncate ${selectedId === p.id ? 'text-zinc-400' : 'text-zinc-500'}`}>
-                                    {p.color}{p.color && p.name_en ? ' · ' : ''}{p.name_en}
-                                  </div>
-                                )}
-                              </button>
-                            ))}
+                              )
+                            })}
                           </div>
                         )
                       })}

@@ -5,7 +5,7 @@ import type { Product, Vendor, ProductMargin } from '@/lib/types'
 import { Button, Input, Select, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import CustomerPicker from '@/components/CustomerPicker'
 import FlatImportButton from '@/components/FlatImportButton'
-import { softDelete } from '@/lib/trash'
+import { softDelete, softDeleteMany } from '@/lib/trash'
 
 export default function Products() {
  const navigate = useNavigate()
@@ -18,6 +18,34 @@ export default function Products() {
  const [priceFilter, setPriceFilter] = useState<'all' | 'missing'>('all')   // 판매가 미입력 필터
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Product | null>(null)
+
+ // 일괄 선택
+ const [selected, setSelected] = useState<Set<string>>(new Set())
+ function toggleSelect(id: string) {
+   setSelected(prev => {
+     const next = new Set(prev)
+     if (next.has(id)) next.delete(id); else next.add(id)
+     return next
+   })
+ }
+ function toggleSelectAllInGroup(ids: string[], checked: boolean) {
+   setSelected(prev => {
+     const next = new Set(prev)
+     if (checked) ids.forEach(id => next.add(id))
+     else ids.forEach(id => next.delete(id))
+     return next
+   })
+ }
+ function clearSelection() { setSelected(new Set()) }
+ async function handleBulkDelete() {
+   const ids = Array.from(selected)
+   if (ids.length === 0) return
+   if (!confirm(`선택한 ${ids.length}개 상품을 휴지통으로 옮길까요?\n30일 안에 휴지통에서 복구 가능합니다.`)) return
+   const { error } = await softDeleteMany('products', ids)
+   if (error) { alert('삭제 실패: ' + error.message); return }
+   clearSelection()
+   load()
+ }
 
  // 거래처별 접기 상태 (localStorage 저장)
  const COLLAPSE_KEY = 'products_collapsed_vendors'
@@ -169,6 +197,33 @@ export default function Products() {
  </div>
  </div>
 
+ {/* 일괄 선택 액션 바 */}
+ {selected.size > 0 && (
+   <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-200 flex items-center gap-3 flex-wrap">
+     <span className="text-[13px] font-semibold text-rose-800">
+       ✓ {selected.size}개 선택됨
+     </span>
+     <button
+       onClick={() => toggleSelectAllInGroup(filtered.map(p => p.id), true)}
+       className="text-[11px] px-2 py-1 rounded bg-white border border-rose-200 text-rose-700 hover:bg-rose-100"
+     >
+       표시된 {filtered.length}개 모두 선택
+     </button>
+     <button
+       onClick={clearSelection}
+       className="text-[11px] px-2 py-1 rounded bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+     >
+       선택 해제
+     </button>
+     <button
+       onClick={handleBulkDelete}
+       className="ml-auto text-[12px] px-3 py-1.5 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-medium"
+     >
+       🗑 휴지통으로 이동 ({selected.size})
+     </button>
+   </div>
+ )}
+
  {loading ? (
  <div className="p-16 text-center text-[12px] text-zinc-400">불러오는 중...</div>
  ) : filtered.length === 0 ? (
@@ -185,11 +240,23 @@ export default function Products() {
  const totalPrice = grouped[vId].reduce((s, p) => s + Number(p.selling_price), 0)
  const withCostCount = grouped[vId].filter(p => (margins.get(p.id)?.production_cost || 0) > 0).length
  const isCollapsed = collapsed.has(vId)
+ const vendorProductIds = grouped[vId].map(p => p.id)
+ const allSelected = vendorProductIds.length > 0 && vendorProductIds.every(id => selected.has(id))
+ const someSelected = vendorProductIds.some(id => selected.has(id))
  return (
  <div key={vId}>
+ <div className="w-full px-4 py-3 bg-gradient-to-r from-zinc-900 to-zinc-800 text-white flex items-center justify-between transition-colors">
+ <input
+   type="checkbox"
+   checked={allSelected}
+   ref={el => { if (el) el.indeterminate = someSelected && !allSelected }}
+   onChange={e => toggleSelectAllInGroup(vendorProductIds, e.target.checked)}
+   className="w-4 h-4 rounded cursor-pointer mr-3 flex-shrink-0"
+   title="이 거래처 상품 전체 선택"
+ />
  <button
    onClick={() => toggleCollapse(vId)}
-   className="w-full px-4 py-3 bg-gradient-to-r from-zinc-900 to-zinc-800 hover:from-zinc-800 hover:to-zinc-700 text-white flex items-center justify-between text-left transition-colors"
+   className="flex-1 flex items-center justify-between text-left min-w-0 hover:opacity-90"
  >
  <div className="flex items-center gap-3 min-w-0">
  <span className={`text-white/70 text-[10px] transition-transform ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
@@ -209,15 +276,17 @@ export default function Products() {
  </div>
  </div>
  </div>
- <div className="text-right flex-shrink-0">
+ <div className="text-right flex-shrink-0 ml-2">
  <div className="text-[10px] text-white/60 uppercase tracking-wider">매출가 합계</div>
  <div className="text-[15px] font-bold tabular-nums">₩{totalPrice.toLocaleString()}</div>
  </div>
  </button>
+ </div>
  {!isCollapsed && (
  <table className="w-full text-[13px]">
  <thead>
  <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
+ <th className="px-3 py-2.5 w-8"></th>
  <th className="px-4 py-2.5">품번</th>
  <th className="px-4 py-2.5">품목</th>
  <th className="px-4 py-2.5">컬러</th>
@@ -233,8 +302,17 @@ export default function Products() {
  const cost = Number(m?.production_cost || 0)
  const margin = Number(m?.margin || 0)
  const rate = Number(m?.margin_rate || 0)
+ const isSelected = selected.has(p.id)
  return (
- <tr key={p.id} className="border-t border-zinc-100 hover:bg-zinc-50/50">
+ <tr key={p.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${isSelected ? 'bg-rose-50/40' : ''}`}>
+ <td className="px-3 py-2.5">
+   <input
+     type="checkbox"
+     checked={isSelected}
+     onChange={() => toggleSelect(p.id)}
+     className="w-4 h-4 rounded cursor-pointer"
+   />
+ </td>
  <td className="px-4 py-2.5 font-mono text-[12px] text-zinc-700">
  <button onClick={() => navigate(`/products/${p.id}`)} className="hover:underline text-blue-700">{p.code}</button>
  </td>
