@@ -159,6 +159,34 @@ export default function FlatImportButton({ entity, onImported }: {
   // 거래처가 파일에 없을 때 사용자가 선택할 fallback 거래처
   const [vendors, setVendors] = useState<Vendor[]>([])
   const [overrideVendorId, setOverrideVendorId] = useState<string>('')
+  // 신규 거래처 인라인 등록
+  const [newVendorOpen, setNewVendorOpen] = useState(false)
+  const [newVendorName, setNewVendorName] = useState('')
+  const [newVendorCompany, setNewVendorCompany] = useState('')
+  const [creatingVendor, setCreatingVendor] = useState(false)
+
+  async function createNewVendor() {
+    const name = newVendorName.trim()
+    if (!name) { alert('거래처명을 입력해주세요.'); return }
+    setCreatingVendor(true)
+    try {
+      const { data, error } = await supabase.from('vendors').insert({
+        name,
+        company_name: newVendorCompany.trim() || null,
+        vendor_type: 'customer',
+        size_system: [],
+      }).select().single()
+      if (error) { alert('거래처 등록 실패: ' + error.message); return }
+      const v = data as Vendor
+      setVendors(prev => [...prev, v].sort((a, b) => (a.name || '').localeCompare(b.name || '')))
+      setOverrideVendorId(v.id)
+      setNewVendorOpen(false)
+      setNewVendorName('')
+      setNewVendorCompany('')
+    } finally {
+      setCreatingVendor(false)
+    }
+  }
 
   // Drawer 열릴 때 거래처 목록 로드 (entity === 'products' 일 때만 필요)
   useEffect(() => {
@@ -407,14 +435,61 @@ export default function FlatImportButton({ entity, onImported }: {
         {entity === 'products' && rows.length > 0 && !hasVendorColumn && (
           <div className="mb-4 p-3 rounded-lg bg-amber-50 border border-amber-200">
             <Label required>거래처 선택 (파일에 거래처명 컬럼이 없어요)</Label>
-            <Select value={overrideVendorId} onChange={e => setOverrideVendorId(e.target.value)}>
-              <option value="">— 선택 —</option>
-              {vendors.map(v => (
-                <option key={v.id} value={v.id}>
-                  {v.name}{v.company_name ? ` (${v.company_name})` : ''}
-                </option>
-              ))}
-            </Select>
+            <div className="flex gap-2 items-start">
+              <div className="flex-1">
+                <Select value={overrideVendorId} onChange={e => setOverrideVendorId(e.target.value)}>
+                  <option value="">— 선택 —</option>
+                  {vendors.map(v => (
+                    <option key={v.id} value={v.id}>
+                      {v.name}{v.company_name ? ` (${v.company_name})` : ''}
+                    </option>
+                  ))}
+                </Select>
+              </div>
+              <button
+                type="button"
+                onClick={() => setNewVendorOpen(o => !o)}
+                className="text-[12px] px-3 py-2 rounded-md border border-zinc-300 bg-white hover:bg-zinc-50 whitespace-nowrap font-medium text-zinc-700"
+              >
+                {newVendorOpen ? '✕ 취소' : '＋ 신규 거래처'}
+              </button>
+            </div>
+            {newVendorOpen && (
+              <div className="mt-3 p-3 rounded-md bg-white border border-amber-300 space-y-2">
+                <div>
+                  <Label required>거래처명</Label>
+                  <input
+                    autoFocus
+                    type="text"
+                    value={newVendorName}
+                    onChange={e => setNewVendorName(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createNewVendor() } }}
+                    placeholder="예: 마요네즈"
+                    className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div>
+                  <Label>회사명 (모회사, 선택)</Label>
+                  <input
+                    type="text"
+                    value={newVendorCompany}
+                    onChange={e => setNewVendorCompany(e.target.value)}
+                    onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); createNewVendor() } }}
+                    placeholder="예: 주식회사 마요네즈"
+                    className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+                <div className="flex justify-end gap-2 pt-1">
+                  <Button variant="secondary" onClick={() => { setNewVendorOpen(false); setNewVendorName(''); setNewVendorCompany('') }}>취소</Button>
+                  <Button onClick={createNewVendor} disabled={creatingVendor || !newVendorName.trim()}>
+                    {creatingVendor ? '등록 중…' : '거래처 등록'}
+                  </Button>
+                </div>
+                <p className="text-[11px] text-zinc-500">
+                  💡 상세 정보(사업자번호/주소/계좌 등)는 등록 후 거래처 관리 메뉴에서 입력할 수 있어요.
+                </p>
+              </div>
+            )}
             <p className="text-[11px] text-zinc-600 mt-1.5">
               이 파일의 모든 상품이 위 거래처에 등록됩니다.
             </p>
