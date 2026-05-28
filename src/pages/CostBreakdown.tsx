@@ -6,7 +6,6 @@ import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/
 import SupplierPicker from '@/components/SupplierPicker'
 import CostImportButton from '@/components/CostImportButton'
 import { exportSheet } from '@/lib/exportXlsx'
-import { softDeleteMany } from '@/lib/trash'
 
 export default function CostBreakdown() {
   const navigate = useNavigate()
@@ -63,17 +62,18 @@ export default function CostBreakdown() {
     })
   }
   function clearSelectedProducts() { setSelectedProducts(new Set()) }
-  async function handleBulkDeleteProducts() {
+
+  /** 선택한 상품들의 원가 항목(cost_items)만 삭제 — 상품은 그대로 둠 */
+  async function handleBulkClearCostItems() {
     const ids = Array.from(selectedProducts)
     if (ids.length === 0) return
-    if (!confirm(`선택한 ${ids.length}개 상품을 휴지통으로 옮길까요?\n30일 안에 휴지통에서 복구 가능합니다.\n\n⚠ 상품과 함께 그 상품의 원가 항목도 함께 사라집니다.`)) return
-    const { error } = await softDeleteMany('products', ids)
+    if (!confirm(`선택한 ${ids.length}개 상품의 원가 항목을 모두 삭제할까요?\n\n· 상품은 그대로 남습니다 (상품관리에 계속 보임)\n· 원가 입력만 빈 상태로 초기화됩니다\n· 이 작업은 되돌릴 수 없어요`)) return
+    const { error } = await supabase.from('cost_items').delete().in('product_id', ids)
     if (error) { alert('삭제 실패: ' + error.message); return }
     clearSelectedProducts()
     setSelectMode(false)
-    // 선택중이던 상품이 지워졌으면 선택 해제
-    if (selectedId && ids.includes(selectedId)) setSelectedId('')
-    await loadAll()
+    // 현재 선택중이던 상품이 영향받았으면 새로고침
+    if (selectedId && ids.includes(selectedId)) loadItems(selectedId)
   }
 
   async function loadAll() {
@@ -275,36 +275,43 @@ export default function CostBreakdown() {
                 >▼ 펼치기</button>
                 <button
                   onClick={() => { setSelectMode(m => !m); if (selectMode) clearSelectedProducts() }}
-                  className={`px-2 py-0.5 rounded transition-colors ml-auto ${selectMode ? 'bg-rose-500 text-white hover:bg-rose-600' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'}`}
-                  title="여러 상품을 한꺼번에 휴지통으로 옮기기"
+                  className={`px-2 py-0.5 rounded transition-colors ml-auto ${selectMode ? 'bg-amber-500 text-white hover:bg-amber-600' : 'bg-zinc-100 hover:bg-zinc-200 text-zinc-700'}`}
+                  title="여러 상품의 원가 항목을 한꺼번에 비우기 (상품 자체는 그대로)"
                 >
-                  {selectMode ? '✕ 선택 해제' : '☐ 일괄 선택'}
+                  {selectMode ? '✕ 선택 해제' : '🧹 원가 일괄 비우기'}
                 </button>
               </div>
             </div>
 
-            {/* 선택 액션 바 */}
-            {selectMode && selectedProducts.size > 0 && (
-              <div className="px-3 py-2 bg-rose-50 border-b border-rose-200 flex items-center gap-2 flex-wrap text-[11px]">
-                <span className="font-semibold text-rose-800">✓ {selectedProducts.size}개 선택</span>
-                <button
-                  onClick={() => selectProducts(filteredProducts.map(p => p.id), true)}
-                  className="px-2 py-0.5 rounded bg-white border border-rose-200 text-rose-700 hover:bg-rose-100"
-                >
-                  표시 {filteredProducts.length}개 모두
-                </button>
-                <button
-                  onClick={clearSelectedProducts}
-                  className="px-2 py-0.5 rounded bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
-                >
-                  해제
-                </button>
-                <button
-                  onClick={handleBulkDeleteProducts}
-                  className="ml-auto px-2.5 py-1 rounded-md bg-rose-600 hover:bg-rose-700 text-white font-medium"
-                >
-                  🗑 휴지통으로 ({selectedProducts.size})
-                </button>
+            {/* 선택 액션 바 — 상품의 원가 항목만 삭제 (상품 자체는 그대로) */}
+            {selectMode && (
+              <div className="px-3 py-2 bg-amber-50 border-b border-amber-200 text-[11px]">
+                <div className="flex items-center gap-2 flex-wrap mb-1.5">
+                  <span className="font-semibold text-amber-900">✓ {selectedProducts.size}개 선택</span>
+                  <button
+                    onClick={() => selectProducts(filteredProducts.map(p => p.id), true)}
+                    className="px-2 py-0.5 rounded bg-white border border-amber-300 text-amber-800 hover:bg-amber-100"
+                  >
+                    표시 {filteredProducts.length}개 모두
+                  </button>
+                  <button
+                    onClick={clearSelectedProducts}
+                    className="px-2 py-0.5 rounded bg-white border border-zinc-200 text-zinc-600 hover:bg-zinc-50"
+                  >
+                    해제
+                  </button>
+                  {selectedProducts.size > 0 && (
+                    <button
+                      onClick={handleBulkClearCostItems}
+                      className="ml-auto px-2.5 py-1 rounded-md bg-amber-600 hover:bg-amber-700 text-white font-medium"
+                    >
+                      🧹 원가 비우기 ({selectedProducts.size})
+                    </button>
+                  )}
+                </div>
+                <p className="text-[10px] text-amber-700 leading-tight">
+                  💡 상품의 <b>원가 항목만</b> 삭제됩니다. 상품 자체는 상품관리에 그대로 남아요. 상품을 지우려면 <b>상품관리 메뉴</b>에서 하세요.
+                </p>
               </div>
             )}
             <div className="flex-1 overflow-y-auto">
