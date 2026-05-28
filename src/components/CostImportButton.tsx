@@ -61,19 +61,29 @@ export default function CostImportButton({ onImported }: { onImported: () => voi
     const errors: string[] = []
 
     try {
-      // 카탈로그 로드
-      const { data: products } = await supabase.from('products').select('id, code, vendor_id').is('deleted_at', null)
+      // 카탈로그 로드 — code/name/name_en 다 매칭 인덱스로
+      const { data: products } = await supabase.from('products').select('id, code, name, name_en, vendor_id').is('deleted_at', null)
       const { data: vendors } = await supabase.from('vendors').select('*').eq('vendor_type', 'supplier')
       const productByCode = new Map<string, string>()
-      ;(products ?? []).forEach((p: any) => { if (p.code) productByCode.set(p.code.trim().toLowerCase(), p.id) })
+      const productByName = new Map<string, string>()
+      ;(products ?? []).forEach((p: any) => {
+        if (p.code) productByCode.set(String(p.code).trim().toLowerCase(), p.id)
+        if (p.name) productByName.set(String(p.name).trim().toLowerCase(), p.id)
+        if (p.name_en) productByName.set(String(p.name_en).trim().toLowerCase(), p.id)
+      })
 
       const vendorsList: Vendor[] = (vendors ?? []) as Vendor[]
       const cachedNew: Vendor[] = []
 
       for (const sheet of sheets) {
-        const pid = productByCode.get(sheet.product_code.trim().toLowerCase())
+        // 매칭 시도: 1) 상품번호 → 2) 상품명(한) → 3) 영문 스타일명
+        let pid: string | undefined
+        if (sheet.product_code) pid = productByCode.get(sheet.product_code.trim().toLowerCase())
+        if (!pid && sheet.product_name) pid = productByName.get(sheet.product_name.trim().toLowerCase())
+        if (!pid && sheet.style_name) pid = productByName.get(sheet.style_name.trim().toLowerCase())
         if (!pid) {
-          notFound.push(`${sheet.product_code} (${sheet.style_name || sheet.sheetName})`)
+          const label = sheet.product_code || sheet.product_name || sheet.style_name || sheet.sheetName
+          notFound.push(`${label} (시트: ${sheet.sheetName})`)
           fail += sheet.lines.length
           continue
         }
