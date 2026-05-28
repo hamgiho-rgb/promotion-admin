@@ -19,6 +19,11 @@ const ALIASES: Record<string, string[]> = {
   vendor_name: ['거래처명', '거래처', '회사', '회사명', 'vendor', 'customer', 'company'],
   brand: ['브랜드', '브랜드명', 'brand'],
   notes: ['메모', '비고', '혼용율', '소재', '재질', '원단', '특이사항', 'memo', 'notes', 'remark', 'remarks', 'material', 'composition'],
+  // cost_items
+  item_name: ['재료명', '재료', '공정명', '항목', '항목명', '재료/공정명', 'item', 'item_name'],
+  supplier_name: ['공급처명', '공급처', '재료공급처', 'supplier', 'store'],
+  unit_price: ['단가', '재료단가', '재료가격', 'unit price', 'unitprice'],
+  yards: ['요척', '야드', 'yard', 'yards', '요척수'],
   // customers extra
   company_name: ['회사명', '모회사', 'companyname', 'parent company'],
   business_number: ['사업자번호', '사업자 번호', '사업자등록번호', 'business number'],
@@ -66,7 +71,7 @@ function getField(row: any[], headers: string[], map: Record<string, number>, ke
  * 양식 다운로드 + 미리보기 + 일괄 등록 한 컴포넌트에 다 있음
  * ───────────────────────────────────────────── */
 
-export type FlatEntity = 'customers' | 'suppliers' | 'products'
+export type FlatEntity = 'customers' | 'suppliers' | 'products' | 'cost_items'
 
 interface EntitySpec {
   label: string
@@ -123,6 +128,18 @@ const SPECS: Record<FlatEntity, EntitySpec> = {
       { key: '메모', label: '메모' },
     ],
     templateRow: ['마요네즈','단델','DD26SMSH-039-CH','픽셀 글리프 테이프 셔츠','DD pixel glyph tape shirt','차콜','39500',''],
+  },
+  cost_items: {
+    label: '원가계산서',
+    description: '상품별 원가 항목 (재료/공임/포장 등). 같은 상품번호가 여러 줄이면 그 상품의 원가 항목으로 누적됨. 공급처는 fuzzy 매칭으로 자동 연결.',
+    columns: [
+      { key: '상품번호', label: '상품번호', required: true, hint: '이미 등록된 상품의 품번' },
+      { key: '재료/공정명', label: '재료/공정명', required: true, hint: '예: 면 30수, 공임, 포리백' },
+      { key: '공급처', label: '공급처', hint: '예: 신상텍스, 대성. 없으면 미지정' },
+      { key: '단가', label: '단가', hint: '숫자만' },
+      { key: '요척', label: '요척', hint: '숫자 (예: 0.75)' },
+    ],
+    templateRow: ['AN26STS0101', '챠밍', '신상텍스', '4300', '0.75'],
   },
 }
 

@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/components/ui'
 import SupplierPicker from '@/components/SupplierPicker'
+import CostImportButton from '@/components/CostImportButton'
 
 export default function CostBreakdown() {
   const navigate = useNavigate()
@@ -172,6 +173,7 @@ export default function CostBreakdown() {
       <PageHeader
         title="원가계산서"
         description="상품별 재료 항목을 입력하면 생산원가와 마진이 자동 계산됩니다. 재료마다 다른 공급처를 지정할 수 있어요."
+        action={<CostImportButton onImported={loadAll} />}
       />
 
       {loading ? (
