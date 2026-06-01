@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, CostItem } from '@/lib/types'
-import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge } from '@/components/ui'
+import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge, Label, Drawer } from '@/components/ui'
 import SupplierPicker from '@/components/SupplierPicker'
+import CustomerPicker from '@/components/CustomerPicker'
 import CostImportButton from '@/components/CostImportButton'
 import { exportSheet } from '@/lib/exportXlsx'
 
@@ -42,6 +43,9 @@ export default function CostBreakdown() {
   const [loading, setLoading] = useState(true)
   const [productSearch, setProductSearch] = useState('')
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
+
+  // 신규 상품 등록 드로어
+  const [newProductOpen, setNewProductOpen] = useState(false)
 
   // 일괄 선택 (상품 삭제용)
   const [selectMode, setSelectMode] = useState(false)
@@ -260,6 +264,13 @@ export default function CostBreakdown() {
           {/* 좌측 상품 목록 */}
           <aside className="lg:col-span-3 bg-white border border-zinc-200 rounded-2xl overflow-hidden flex flex-col" style={{ maxHeight: 'calc(100vh - 200px)' }}>
             <div className="p-3 border-b border-zinc-100">
+              <div className="flex items-center gap-2 mb-2">
+                <button
+                  onClick={() => setNewProductOpen(true)}
+                  className="flex-1 text-[12px] px-2.5 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white font-medium"
+                  title="원가계산서에서 바로 상품 등록"
+                >＋ 새 상품 등록</button>
+              </div>
               <Input value={productSearch} onChange={e => setProductSearch(e.target.value)} placeholder="🔍 품번 / 품목명 / 컬러" />
               <div className="flex items-center gap-2 mt-2 text-[10px] flex-wrap">
                 <button
@@ -636,6 +647,19 @@ export default function CostBreakdown() {
         hasExisting={items.length > 0}
         onCopy={copyFromProduct}
       />
+
+      {/* 신규 상품 등록 드로어 */}
+      <NewProductDrawer
+        open={newProductOpen}
+        onClose={() => setNewProductOpen(false)}
+        customers={customers}
+        onCreated={async (newId) => {
+          setNewProductOpen(false)
+          await loadAll()
+          setSelectedId(newId)
+        }}
+        onCustomersChanged={loadAll}
+      />
     </div>
   )
 }
@@ -752,5 +776,158 @@ function SummaryCard({ label, value, hint, highlight = 'zinc' }: {
       <p className={`text-[20px] font-bold mt-1 tabular-nums ${colors[highlight]}`}>{value}</p>
       <p className="text-[11px] text-zinc-400 mt-0.5">{hint}</p>
     </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 신규 상품 등록 드로어 — 원가계산서에서 바로 상품 추가
+ * 등록 후 콜백에 새 상품 id 전달 → 좌측 목록 새로고침 + 자동 선택
+ * ───────────────────────────────────────────── */
+function NewProductDrawer({ open, onClose, customers, onCreated, onCustomersChanged }: {
+  open: boolean
+  onClose: () => void
+  customers: Vendor[]
+  onCreated: (newId: string) => void
+  onCustomersChanged: () => void
+}) {
+  const [vendorId, setVendorId] = useState<string>('')
+  const [code, setCode] = useState('')
+  const [name, setName] = useState('')
+  const [nameEn, setNameEn] = useState('')
+  const [brand, setBrand] = useState('')
+  const [color, setColor] = useState('')
+  const [sellingPrice, setSellingPrice] = useState<number | ''>('')
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  // 드로어 열릴 때 폼 리셋
+  useEffect(() => {
+    if (!open) return
+    setVendorId(customers[0]?.id || '')
+    setCode(''); setName(''); setNameEn(''); setBrand(''); setColor(''); setSellingPrice('')
+    setError(null)
+  }, [open, customers])
+
+  async function handleSave() {
+    if (!vendorId) { setError('거래처를 선택해주세요.'); return }
+    if (!code.trim()) { setError('품번은 필수입니다.'); return }
+    if (!name.trim()) { setError('품목명은 필수입니다.'); return }
+    setSaving(true); setError(null)
+
+    const payload = {
+      vendor_id: vendorId,
+      code: code.trim(),
+      name: name.trim(),
+      name_en: nameEn.trim() || null,
+      brand: brand.trim() || null,
+      color: color.trim() || null,
+      selling_price: Number(sellingPrice) || 0,
+    }
+
+    const { data, error: insErr } = await supabase.from('products').insert(payload).select().single()
+    if (insErr) {
+      // 휴지통에 같은 품번 있나 확인 → 자동 복구
+      const msg = insErr.message.toLowerCase()
+      if (msg.includes('duplicate') || msg.includes('unique')) {
+        const { data: trashed } = await supabase
+          .from('products')
+          .select('id, name')
+          .eq('vendor_id', vendorId)
+          .eq('code', payload.code)
+          .not('deleted_at', 'is', null)
+          .maybeSingle()
+        if (trashed) {
+          if (confirm(`품번 '${payload.code}' 가 휴지통에 있습니다. ('${trashed.name}')\n\n복구해서 입력한 정보로 업데이트할까요?`)) {
+            const { data: restored, error: upErr } = await supabase
+              .from('products')
+              .update({ deleted_at: null, ...payload })
+              .eq('id', trashed.id)
+              .select().single()
+            setSaving(false)
+            if (upErr) { setError(upErr.message); return }
+            if (restored) onCreated(restored.id)
+            return
+          }
+          setSaving(false)
+          setError(`품번 '${payload.code}' 가 휴지통에 있어요. 다른 품번을 쓰거나 휴지통에서 복구하세요.`)
+          return
+        }
+      }
+      setSaving(false); setError(insErr.message); return
+    }
+    setSaving(false)
+    if (data) onCreated(data.id)
+  }
+
+  return (
+    <Drawer
+      open={open}
+      onClose={onClose}
+      title="＋ 새 상품 등록"
+      footer={
+        <>
+          <Button variant="secondary" onClick={onClose}>취소</Button>
+          <Button onClick={handleSave} disabled={saving}>
+            {saving ? '저장 중...' : '저장하고 원가 입력 시작'}
+          </Button>
+        </>
+      }
+    >
+      {error && <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[12px]">{error}</div>}
+
+      <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-[12px] text-blue-900">
+        💡 상품 등록 후 자동으로 좌측 목록에 추가되고, 이 상품의 원가 입력 화면으로 이동합니다.
+      </div>
+
+      <div className="space-y-4">
+        <div>
+          <Label required>거래처(고객)</Label>
+          <CustomerPicker
+            value={vendorId || null}
+            customers={customers}
+            onChange={id => setVendorId(id || '')}
+            onCustomersChanged={onCustomersChanged}
+          />
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <Label required>품번</Label>
+            <Input value={code} onChange={e => setCode(e.target.value)} placeholder="예: DD26SMTS-007-SK" />
+          </div>
+          <div>
+            <Label>컬러</Label>
+            <Input value={color} onChange={e => setColor(e.target.value)} placeholder="예: 차콜" />
+          </div>
+        </div>
+
+        <div>
+          <Label required>품목명 (한글)</Label>
+          <Input value={name} onChange={e => setName(e.target.value)} placeholder="예: 픽셀 글리프 테이프 셔츠" />
+        </div>
+
+        <div>
+          <Label>영문 품목명 (선택)</Label>
+          <Input value={nameEn} onChange={e => setNameEn(e.target.value)} placeholder="예: DD pixel glyph tape shirt" />
+        </div>
+
+        <div>
+          <Label>브랜드 (선택)</Label>
+          <Input value={brand} onChange={e => setBrand(e.target.value)} placeholder="예: 단델" />
+          <p className="text-[11px] text-zinc-500 mt-1">예: 회사 '마요네즈' 안에 브랜드 '단델'</p>
+        </div>
+
+        <div>
+          <Label>판매가 (선택)</Label>
+          <Input
+            type="number"
+            value={sellingPrice === '' ? '' : sellingPrice}
+            onChange={e => setSellingPrice(e.target.value === '' ? '' : Number(e.target.value))}
+            placeholder="0"
+          />
+          <p className="text-[11px] text-zinc-500 mt-1">나중에 상품관리에서 수정 가능. 마진 계산에 사용됨.</p>
+        </div>
+      </div>
+    </Drawer>
   )
 }

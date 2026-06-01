@@ -113,24 +113,31 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
           incomingId = incData.id
         }
 
-        // 기존 라인 키 (delivery_date + product_code + carton_no) 모음 — 중복 라인 스킵용
+        // 기존 라인 키 (delivery_date + product_code + carton_no + sizes분포) — 중복 라인 스킵용
+        // ⚠ 사이즈 분포까지 키에 포함시킴 — 같은 카톤이라도 사이즈가 다른 별개 라인은 중복 아님
+        const sizesKey = (s: Record<string, any> | null | undefined) => {
+          if (!s || typeof s !== 'object') return ''
+          return Object.keys(s).sort().map(k => `${k}:${Number((s as any)[k]) || 0}`).join('|')
+        }
         let existingLineKeys = new Set<string>()
         if (isExisting) {
           const { data: existingItems } = await supabase.from('incoming_items')
-            .select('delivery_date, product_code, carton_no').eq('incoming_id', incomingId)
+            .select('delivery_date, product_code, carton_no, sizes').eq('incoming_id', incomingId)
           ;(existingItems ?? []).forEach((it: any) => {
-            const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}`
+            const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}__${sizesKey(it.sizes)}`
             existingLineKeys.add(k)
           })
         }
 
         const newPayload = []
         for (const it of receipt.items) {
-          const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}`
+          const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}__${sizesKey(it.sizes)}`
           if (existingLineKeys.has(k)) {
             skippedCount++
             continue
           }
+          // 이번 import 안에서도 같은 키 중복 방지 (재실행이 아닌 한 파일 안에선 사이즈 분포까지 일치할 일 거의 없음)
+          existingLineKeys.add(k)
           newPayload.push({
             incoming_id: incomingId,
             product_id: productByCode.get(it.product_code) || null,

@@ -2,8 +2,9 @@ import { useEffect, useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, ProductMargin } from '@/lib/types'
-import { Button, Input, Select, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
+import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
 import CustomerPicker from '@/components/CustomerPicker'
+import VendorSearchSelect from '@/components/VendorSearchSelect'
 import FlatImportButton from '@/components/FlatImportButton'
 import { softDelete, softDeleteMany } from '@/lib/trash'
 
@@ -164,11 +165,14 @@ export default function Products() {
  ) : (
  <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
  <div className="px-4 pt-3 pb-3 flex items-center gap-3 flex-wrap border-b border-zinc-100">
- <div className="w-48">
- <Select value={vendorFilter} onChange={e => setVendorFilter(e.target.value)}>
- <option value="all">모든 거래처</option>
- {vendors.map(v => <option key={v.id} value={v.id}>{v.name}</option>)}
- </Select>
+ <div className="w-56">
+ <VendorSearchSelect
+   value={vendorFilter}
+   vendors={vendors}
+   onChange={setVendorFilter}
+   allLabel="모든 거래처"
+   placeholder="🔍 거래처 검색"
+ />
  </div>
  <div className="flex-1 min-w-[200px] max-w-md">
  <Input value={search} onChange={e => setSearch(e.target.value)} />
