@@ -188,6 +188,26 @@ export default function CostBreakdown() {
     loadItems(selectedId)
   }
 
+  /** 원가 항목 위/아래로 이동 — 같은 공급처 그룹 내에서 sort_order 스왑 */
+  async function moveItem(itemId: string, dir: 'up' | 'down') {
+    const item = items.find(i => i.id === itemId)
+    if (!item) return
+    // 같은 공급처(또는 미지정)끼리만 스왑 — 그래야 시각적으로 위치가 바뀜
+    const groupItems = items
+      .filter(i => (i.supplier_id || null) === (item.supplier_id || null))
+      .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+    const idx = groupItems.findIndex(i => i.id === itemId)
+    const targetIdx = dir === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= groupItems.length) return
+    const target = groupItems[targetIdx]
+    const myOrder = Number(item.sort_order || 0)
+    const targetOrder = Number(target.sort_order || 0)
+    // 두 행의 sort_order 교환
+    await supabase.from('cost_items').update({ sort_order: targetOrder }).eq('id', item.id)
+    await supabase.from('cost_items').update({ sort_order: myOrder }).eq('id', target.id)
+    loadItems(selectedId)
+  }
+
   /** 현재 선택 상품의 원가내역을 엑셀로 내보내기 */
   function exportCurrentToExcel() {
     if (!selectedProduct) return
@@ -558,6 +578,7 @@ export default function CostBreakdown() {
                           <table className="w-full text-[13px] min-w-[600px]">
                             <thead>
                               <tr className="text-left text-[11px] font-semibold uppercase text-zinc-500">
+                                <th className="px-3 py-2 w-14 text-center">순서</th>
                                 <th className="px-3 py-2">공급처</th>
                                 <th className="px-3 py-2">재료/항목명</th>
                                 <th className="px-3 py-2 text-right w-36">단가</th>
@@ -567,8 +588,24 @@ export default function CostBreakdown() {
                               </tr>
                             </thead>
                             <tbody>
-                              {group.items.map(item => (
+                              {group.items.map((item, idx) => (
                                 <tr key={item.id} className="border-t border-zinc-100">
+                                  <td className="px-1 py-1.5">
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <button
+                                        onClick={() => moveItem(item.id, 'up')}
+                                        disabled={idx === 0}
+                                        className="w-6 h-5 rounded text-[11px] bg-zinc-100 hover:bg-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-700 leading-none"
+                                        title="위로 이동"
+                                      >▲</button>
+                                      <button
+                                        onClick={() => moveItem(item.id, 'down')}
+                                        disabled={idx === group.items.length - 1}
+                                        className="w-6 h-5 rounded text-[11px] bg-zinc-100 hover:bg-zinc-200 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-700 leading-none"
+                                        title="아래로 이동"
+                                      >▼</button>
+                                    </div>
+                                  </td>
                                   <td className="px-2 py-1.5">
                                     <SupplierPicker
                                       value={item.supplier_id}
