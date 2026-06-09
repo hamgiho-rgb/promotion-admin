@@ -188,6 +188,33 @@ export default function CostBreakdown() {
     loadItems(selectedId)
   }
 
+  /** 공급처 그룹 통째로 위/아래 이동 — 그룹의 모든 항목 sort_order 재배치 */
+  async function moveGroup(supplierKey: string, dir: 'up' | 'down') {
+    const groupKeys = Object.keys(supplierGroups)
+    const idx = groupKeys.indexOf(supplierKey)
+    const targetIdx = dir === 'up' ? idx - 1 : idx + 1
+    if (targetIdx < 0 || targetIdx >= groupKeys.length) return
+    // 새 그룹 순서
+    const newKeys = [...groupKeys]
+    ;[newKeys[idx], newKeys[targetIdx]] = [newKeys[targetIdx], newKeys[idx]]
+    // 새 순서대로 sort_order 0,1,2,... 재할당 (그룹 내 항목 순서는 유지)
+    let n = 0
+    const updates: { id: string; sort_order: number }[] = []
+    for (const key of newKeys) {
+      const groupItems = supplierGroups[key].items
+        .slice()
+        .sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0))
+      for (const it of groupItems) {
+        updates.push({ id: it.id, sort_order: n++ })
+      }
+    }
+    // 한 번에 update — Promise.all
+    await Promise.all(updates.map(u =>
+      supabase.from('cost_items').update({ sort_order: u.sort_order }).eq('id', u.id)
+    ))
+    loadItems(selectedId)
+  }
+
   /** 원가 항목 위/아래로 이동 — 같은 공급처 그룹 내에서 sort_order 스왑 */
   async function moveItem(itemId: string, dir: 'up' | 'down') {
     const item = items.find(i => i.id === itemId)
@@ -549,13 +576,28 @@ export default function CostBreakdown() {
 
                 {/* 공급처별 재료 그룹 */}
                 <div className="space-y-3">
-                  {Object.entries(supplierGroups).map(([supplierId, group]) => {
+                  {Object.entries(supplierGroups).map(([supplierId, group], groupIdx, groupArr) => {
                     const groupTotal = group.items.reduce((s, i) => s + Number(i.subtotal || 0), 0)
                     return (
                       <div key={supplierId} className="bg-white border border-zinc-200 rounded-2xl overflow-hidden">
                         {/* 공급처 헤더 */}
                         <div className="px-4 py-3 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between flex-wrap gap-2">
                           <div className="flex items-center gap-2 flex-wrap">
+                            {/* 그룹 순서 변경 ▲▼ */}
+                            <div className="flex flex-col gap-0.5 mr-1">
+                              <button
+                                onClick={() => moveGroup(supplierId, 'up')}
+                                disabled={groupIdx === 0}
+                                className="w-6 h-5 rounded text-[11px] bg-white border border-zinc-200 hover:bg-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-700 leading-none"
+                                title="공급처 그룹을 위로 이동"
+                              >▲</button>
+                              <button
+                                onClick={() => moveGroup(supplierId, 'down')}
+                                disabled={groupIdx === groupArr.length - 1}
+                                className="w-6 h-5 rounded text-[11px] bg-white border border-zinc-200 hover:bg-zinc-100 disabled:opacity-30 disabled:cursor-not-allowed text-zinc-700 leading-none"
+                                title="공급처 그룹을 아래로 이동"
+                              >▼</button>
+                            </div>
                             {group.supplier ? (
                               <>
                                 <Badge color="blue">{group.supplier.name}</Badge>
