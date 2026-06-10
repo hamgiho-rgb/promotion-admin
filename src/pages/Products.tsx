@@ -241,7 +241,6 @@ export default function Products() {
  {groupedVendorIds.map(vId => {
  const vendor = vendors.find(v => v.id === vId)
  const brands = Array.from(new Set(grouped[vId].map(p => p.brand).filter(Boolean))) as string[]
- const totalPrice = grouped[vId].reduce((s, p) => s + Number(p.selling_price), 0)
  const withCostCount = grouped[vId].filter(p => (margins.get(p.id)?.production_cost || 0) > 0).length
  const isCollapsed = collapsed.has(vId)
  const vendorProductIds = grouped[vId].map(p => p.id)
@@ -279,10 +278,6 @@ export default function Products() {
  {grouped[vId].length}개 상품 · 원가 {withCostCount}/{grouped[vId].length}
  </div>
  </div>
- </div>
- <div className="text-right flex-shrink-0 ml-2">
- <div className="text-[10px] text-white/60 uppercase tracking-wider">매출가 합계</div>
- <div className="text-[15px] font-bold tabular-nums">₩{totalPrice.toLocaleString()}</div>
  </div>
  </button>
  </div>
