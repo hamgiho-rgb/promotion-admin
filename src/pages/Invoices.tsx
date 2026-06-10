@@ -3,7 +3,7 @@ import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Invoice, InvoiceItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
-import { exportInvoiceReceipt, exportInvoiceReceiptsMulti } from '@/lib/exportXlsx'
+import { exportInvoiceReceipt, exportInvoiceReceiptsMulti, exportInvoiceFull } from '@/lib/exportXlsx'
 import InvoiceImportButton from '@/components/InvoiceImportButton'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import { softDelete, softDeleteMany } from '@/lib/trash'
@@ -190,7 +190,11 @@ export default function InvoicesPage() {
 
  async function exportOne(inv: Invoice) {
    const { data: items } = await supabase.from('invoice_items').select('*').eq('invoice_id', inv.id).order('sort_order')
-   exportInvoiceReceipt({
+   // 거래처의 사이즈 체계 가져오기 (없으면 lines에서 자동 추출)
+   const vendor = vendors.find(v => v.id === inv.vendor_id)
+   const sizeLabels = ((vendor as any)?.size_system as string[] | undefined) || []
+   // 새 양식 — 라인 수 제한 없음, 사이즈별 컬럼 자동
+   exportInvoiceFull({
      vendor_name: vendorName(inv.vendor_id),
      issue_date: inv.issue_date,
      supplier_business_number: inv.supplier_business_number,
@@ -199,12 +203,13 @@ export default function InvoicesPage() {
      supplier_address: inv.supplier_address,
      bank_info: inv.bank_info,
      notes: inv.notes,
-     items: (items || []).map(it => ({
-       line_date: it.line_date,
+     size_labels: sizeLabels,
+     lines: (items || []).map(it => ({
        product_name: it.product_name,
        color: it.color,
        quantity: it.quantity,
        unit_price: Number(it.unit_price),
+       sizes: (it as any).sizes,
      })),
    })
  }
@@ -235,6 +240,7 @@ export default function InvoicesPage() {
        color: it.color,
        quantity: it.quantity,
        unit_price: Number(it.unit_price),
+       sizes: (it as any).sizes,
      })),
    }))
    const fname = vendorFilter === 'all' ? '계산서_전체' : `계산서_${vendorName(vendorFilter)}`

@@ -31,6 +31,8 @@ export interface ReceiptInvoice {
     color?: string | null
     quantity?: number | null
     unit_price?: number | null
+    /** 사이즈별 분포 (예: {1:56, 2:54}) — 사이즈 컬럼에 "1:56, 2:54" 로 표시됨 */
+    sizes?: Record<string, number> | null
   }[]
 }
 
@@ -88,35 +90,67 @@ function buildReceiptSheet(inv: ReceiptInvoice): { aoa: any[][]; merges: XLSX.Ra
   // 12-31행: 데이터 (최대 20행). 부족하면 빈 행, 넘치면 자르고 마지막에 표시
   const MAX_ROWS = 20
   const items = inv.items.slice(0, MAX_ROWS)
+  let runningSubtotal = 0
   for (let i = 0; i < MAX_ROWS; i++) {
     const r = 12 + i
     const it = items[i]
     if (it) {
       if (i === 0) set(r, 2, inv.issue_date)
-      const [color, size] = splitColorSize(it.color)
-      set(r, 4, it.product_name || '')
-      set(r, 6, color)
-      set(r, 7, size)
-      set(r, 8, it.quantity ?? 0)
-      set(r, 9, it.unit_price ?? 0)
-      set(r, 10, { f: `I${r}*H${r}` })
+      // 컬러 + 사이즈 결정:
+      // 1) it.color 에 "컬러/사이즈" 가 있으면 분리
+      // 2) it.sizes JSON 있으면 분포 문자열로 (예: "1:56 · 2:54")
+      // 3) 둘 다 없으면 상품명 끝의 "(컬러)"를 컬러로 추출
+      let colorVal = ''
+      let sizeVal = ''
+      if (it.color) {
+        const [c, s] = splitColorSize(it.color)
+        colorVal = c
+        sizeVal = s
+      }
+      // 사이즈 분포가 있으면 그걸 우선 사용 (예: {1:56, 2:54} → "1:56 · 2:54")
+      if (it.sizes && Object.keys(it.sizes).length > 0) {
+        const parts = Object.entries(it.sizes)
+          .filter(([, n]) => Number(n) > 0)
+          .map(([sz, n]) => `${sz}:${n}`)
+        if (parts.length > 0) sizeVal = parts.join(' · ')
+      }
+      // 상품명 끝에 "(컬러)" 형태로 컬러가 있고 color 필드가 비어있으면 거기서 추출
+      const name = String(it.product_name || '')
+      if (!colorVal) {
+        const m = name.match(/\(([^()]+)\)\s*$/)
+        if (m) colorVal = m[1].trim()
+      }
+      const qty = Number(it.quantity ?? 0)
+      const price = Number(it.unit_price ?? 0)
+      const amount = qty * price
+      runningSubtotal += amount
+      set(r, 4, name)
+      set(r, 6, colorVal)
+      set(r, 7, sizeVal)
+      set(r, 8, qty)
+      set(r, 9, price)
+      // 금액 — 수식 + 미리 계산된 값 둘 다 (Excel 뷰어 호환성)
+      set(r, 10, { f: `I${r}*H${r}`, v: amount })
     } else {
-      // 빈 행 (양식 유지)
+      // 빈 행 (양식 유지) — 금액 0으로 명시
       set(r, 8, 0)
       set(r, 9, 0)
-      set(r, 10, { f: `I${r}*H${r}` })
+      set(r, 10, 0)
     }
   }
-  // 32행: 계좌정보 / 금일 금액 / 합계 수식
+  // 합계 계산
+  const vatAmt = Math.round(runningSubtotal * 0.1)
+  const totalAmt = runningSubtotal + vatAmt
+  // 32행: 계좌정보 / 금일 금액 / 합계 (수식 + 값)
   set(32, 2, inv.bank_info || '')
   set(32, 6, '금일 금액')
-  set(32, 9, { f: 'SUM(J12:J31)' })
+  set(32, 9, { f: 'SUM(J12:J31)', v: runningSubtotal })
   // 33행: 세액
   set(33, 6, '세액')
-  set(33, 9, { f: 'I32*0.1' })
+  set(33, 9, { f: 'I32*0.1', v: vatAmt })
   // 34행: 총 합계
   set(34, 6, '총 합계')
-  set(34, 9, { f: 'I32+I33' })
+  set(34, 9, { f: 'I32+I33', v: totalAmt })
   // 35행: 위 금액을 청구(영수)함
   set(35, 2, '위 금액을 청구(영수)함')
 
@@ -146,19 +180,54 @@ function buildReceiptSheet(inv: ReceiptInvoice): { aoa: any[][]; merges: XLSX.Ra
     range('B35:J35'),
   ]
 
-  // 컬럼 너비 — 한글이 들어가는 셀은 wch * 2 정도 필요. 더 넉넉하게 잡음.
+  // 한글 문자는 폭이 2배 — wch 계산 시 한글은 2 카운트
+  function visualWidth(s: string): number {
+    return [...s].reduce((a, ch) => a + (ch.charCodeAt(0) > 127 ? 2 : 1), 0)
+  }
+  // 데이터 기반 자동 너비 계산 — 컨텐츠 보고 잘리지 않게 늘림
+  let maxNameLen = 8     // 품명 (D)
+  let maxColorLen = 6    // 품목/컬러 (F)
+  let maxSizeLen = 4     // 사이즈 (G)
+  let maxQtyLen = 4      // 수량 (H)
+  let maxPriceLen = 6    // 단가 (I)
+  let maxAmountLen = 8   // 금액 (J)
+  inv.items.forEach(it => {
+    const [col, sz] = splitColorSize(it.color)
+    const name = String(it.product_name || '')
+    maxNameLen = Math.max(maxNameLen, visualWidth(name))
+    maxColorLen = Math.max(maxColorLen, visualWidth(col))
+    maxSizeLen = Math.max(maxSizeLen, visualWidth(sz))
+    const qStr = String(it.quantity ?? 0)
+    const pStr = (it.unit_price ?? 0).toLocaleString()
+    const aStr = ((it.quantity || 0) * (it.unit_price || 0)).toLocaleString()
+    maxQtyLen = Math.max(maxQtyLen, qStr.length)
+    maxPriceLen = Math.max(maxPriceLen, pStr.length)
+    maxAmountLen = Math.max(maxAmountLen, aStr.length)
+  })
+  // 공급자 주소도 봐서 D-J 라인이 충분한지 체크
+  const addrLen = visualWidth(inv.supplier_address || '')
+  const vendorLen = visualWidth(inv.vendor_name || '')
+
+  // 컬럼 너비 (한글 기준 넉넉히 + 2칸 패딩)
   const cols = [
-    { wch: 3 },    // A 좌측 여백
-    { wch: 13 },   // B 날짜
-    { wch: 6 },    // C 보조
-    { wch: 32 },   // D 품명 — 긴 한글/영문 상품명 들어감 (예: DD horseshoe check applique tee)
-    { wch: 6 },    // E 보조
-    { wch: 22 },   // F 품목/컬러
-    { wch: 10 },   // G 사이즈
-    { wch: 10 },   // H 수량
-    { wch: 14 },   // I 단가
-    { wch: 16 },   // J 금액
+    { wch: 3 },                                          // A 좌측 여백
+    { wch: 14 },                                         // B 날짜
+    { wch: 6 },                                          // C 보조
+    { wch: Math.max(32, maxNameLen + 2) },              // D 품명 — 컨텐츠 기반 늘어남
+    { wch: 6 },                                          // E 보조
+    { wch: Math.max(22, maxColorLen + 2) },             // F 품목/컬러
+    { wch: Math.max(10, maxSizeLen + 2) },              // G 사이즈
+    { wch: Math.max(10, maxQtyLen + 2) },               // H 수량
+    { wch: Math.max(14, maxPriceLen + 2) },             // I 단가
+    { wch: Math.max(16, maxAmountLen + 2) },            // J 금액
   ]
+  // 공급자 영역(F4:J4 사업자번호 등) 도 너무 좁지 않게: F~J 합계가 주소/거래처명을 담을 수 있어야
+  const fThruJ = cols[5].wch + cols[6].wch + cols[7].wch + cols[8].wch + cols[9].wch
+  const need = Math.max(addrLen, vendorLen) + 4
+  if (fThruJ < need) {
+    // F 늘려서 채움
+    cols[5] = { wch: cols[5].wch + (need - fThruJ) }
+  }
 
   // 행 높이 (병합된 헤더가 잘 보이도록)
   const rows = [
@@ -190,7 +259,13 @@ function aoaToSheetWithFormulas(aoa: any[][]): XLSX.WorkSheet {
       if (v == null || v === '') continue
       const addr = XLSX.utils.encode_cell({ r, c })
       if (typeof v === 'object' && (v as any).f) {
-        ws[addr] = { t: 'n', f: (v as any).f }
+        // 수식 + 미리 계산된 값 — Excel 외 뷰어(번들/Pages/모바일)에서도 결과 보이게
+        const cell: any = { t: 'n', f: (v as any).f }
+        if (typeof (v as any).v === 'number') {
+          cell.v = (v as any).v
+          if ((v as any).v >= 1000 || (v as any).v <= -1000) cell.z = '#,##0'
+        }
+        ws[addr] = cell
       } else if (typeof v === 'number') {
         ws[addr] = { t: 'n', v, z: v >= 1000 || v <= -1000 ? '#,##0' : undefined }
       } else if (v instanceof Date) {
@@ -203,6 +278,177 @@ function aoaToSheetWithFormulas(aoa: any[][]): XLSX.WorkSheet {
   }
   ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: numRows - 1, c: numCols - 1 } })
   return ws
+}
+
+/* ─────────────────────────────────────────────
+ * 새 동적 양식 — 출력 화면과 똑같이
+ * - 사이즈별 컬럼 자동 (1,2 또는 110,120,130 ...)
+ * - 모든 라인 표시 (20줄 제한 없음)
+ * - 합계 / 부가세 / 총합 자동
+ * ───────────────────────────────────────────── */
+export interface FullInvoiceLine {
+  product_name?: string | null
+  color?: string | null
+  sizes?: Record<string, number> | null
+  quantity?: number | null
+  unit_price?: number | null
+}
+export interface FullInvoice {
+  vendor_name: string
+  issue_date: string
+  supplier_business_number?: string | null
+  supplier_name?: string | null
+  supplier_ceo?: string | null
+  supplier_address?: string | null
+  bank_info?: string | null
+  notes?: string | null
+  /** 사이즈 라벨 (없으면 lines에서 자동 추출) */
+  size_labels?: string[]
+  lines: FullInvoiceLine[]
+}
+
+export function exportInvoiceFull(inv: FullInvoice, filename?: string) {
+  // 사이즈 라벨 추출 — 명시 안 했으면 모든 라인의 sizes 키 합집합
+  let sizeLabels = inv.size_labels && inv.size_labels.length > 0 ? inv.size_labels : []
+  if (sizeLabels.length === 0) {
+    const set = new Set<string>()
+    inv.lines.forEach(l => {
+      if (l.sizes) Object.keys(l.sizes).forEach(k => set.add(k))
+    })
+    sizeLabels = Array.from(set).sort((a, b) => {
+      const na = Number(a), nb = Number(b)
+      if (!isNaN(na) && !isNaN(nb)) return na - nb
+      return a.localeCompare(b)
+    })
+  }
+  const hasSizes = sizeLabels.length > 0
+  const hasColor = inv.lines.some(l => l.color && l.color.trim())
+
+  // 컬럼 구성: 품명 | [컬러] | [사이즈들...] | 수량 | 단가 | 금액
+  const headerCols: string[] = ['품명']
+  if (hasColor) headerCols.push('컬러')
+  sizeLabels.forEach(s => headerCols.push(s))
+  headerCols.push('수량', '단가', '금액')
+
+  // 한글 시각 너비
+  const vw = (s: string) => [...(s || '')].reduce((a, ch) => a + (ch.charCodeAt(0) > 127 ? 2 : 1), 0)
+
+  // 컬럼 너비 — 컨텐츠 기반
+  const colWidths: number[] = []
+  // 품명 컬럼
+  let maxNameW = vw('품명')
+  inv.lines.forEach(l => { maxNameW = Math.max(maxNameW, vw(l.product_name || '')) })
+  colWidths.push(Math.max(28, maxNameW + 2))
+  // 컬러 컬럼
+  if (hasColor) {
+    let maxColorW = vw('컬러')
+    inv.lines.forEach(l => { maxColorW = Math.max(maxColorW, vw(l.color || '')) })
+    colWidths.push(Math.max(10, maxColorW + 2))
+  }
+  // 사이즈 컬럼들
+  sizeLabels.forEach(label => {
+    let maxW = vw(label) + 2
+    inv.lines.forEach(l => {
+      const v = String(l.sizes?.[label] ?? '')
+      maxW = Math.max(maxW, v.length + 2)
+    })
+    colWidths.push(Math.max(7, maxW))
+  })
+  // 수량 / 단가 / 금액
+  let maxQty = vw('수량'), maxPrice = vw('단가'), maxAmt = vw('금액')
+  inv.lines.forEach(l => {
+    const q = Number(l.quantity || 0)
+    const p = Number(l.unit_price || 0)
+    maxQty = Math.max(maxQty, String(q.toLocaleString()).length)
+    maxPrice = Math.max(maxPrice, String(p.toLocaleString()).length)
+    maxAmt = Math.max(maxAmt, String((q * p).toLocaleString()).length)
+  })
+  colWidths.push(Math.max(8, maxQty + 2))
+  colWidths.push(Math.max(10, maxPrice + 2))
+  colWidths.push(Math.max(12, maxAmt + 2))
+
+  // AoA 구성
+  const aoa: any[][] = []
+  // 상단 헤더 정보 (5행)
+  aoa.push(['영 수 증 (공급받는자용)'])
+  aoa.push([`${inv.vendor_name || ''} 귀하`])
+  aoa.push([`작성일: ${inv.issue_date || ''}`])
+  aoa.push([`공급자: ${inv.supplier_name || ''}  사업자번호: ${inv.supplier_business_number || ''}  대표: ${inv.supplier_ceo || ''}`])
+  aoa.push([`주소: ${inv.supplier_address || ''}`])
+  aoa.push([])  // 빈줄
+  // 컬럼 헤더
+  aoa.push(headerCols)
+  // 데이터 라인
+  let subtotal = 0
+  inv.lines.forEach(l => {
+    const qty = Number(l.quantity || 0)
+    const price = Number(l.unit_price || 0)
+    const amount = qty * price
+    subtotal += amount
+    const row: any[] = [l.product_name || '']
+    if (hasColor) row.push(l.color || '')
+    sizeLabels.forEach(s => {
+      const v = l.sizes?.[s]
+      row.push(v && v > 0 ? v : '')
+    })
+    row.push(qty)
+    row.push(price)
+    row.push(amount)
+    aoa.push(row)
+  })
+  // 합계
+  const vat = Math.round(subtotal * 0.1)
+  const total = subtotal + vat
+  const endCol = headerCols.length
+  aoa.push([])
+  const padEnd = (label: string, val: number) => {
+    const row = new Array(endCol).fill('')
+    row[endCol - 4] = label   // 수량 칸 라벨
+    row[endCol - 1] = val     // 금액 칸 값
+    return row
+  }
+  aoa.push(padEnd('소계', subtotal))
+  aoa.push(padEnd('부가세 (10%)', vat))
+  aoa.push(padEnd('총 합계', total))
+  aoa.push([])
+  if (inv.bank_info) aoa.push([`입금 계좌: ${inv.bank_info}`])
+  aoa.push(['※ 위 금액을 청구(영수)함'])
+
+  // 시트 구성
+  const ws: XLSX.WorkSheet = {}
+  for (let r = 0; r < aoa.length; r++) {
+    const row = aoa[r]
+    for (let c = 0; c < row.length; c++) {
+      const v = row[c]
+      if (v == null || v === '') continue
+      const addr = XLSX.utils.encode_cell({ r, c })
+      if (typeof v === 'number') {
+        ws[addr] = { t: 'n', v, z: v >= 1000 || v <= -1000 ? '#,##0' : undefined }
+      } else {
+        ws[addr] = { t: 's', v: String(v) }
+      }
+    }
+  }
+  const maxCols = Math.max(headerCols.length, ...aoa.map(r => r.length))
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: maxCols - 1 } })
+
+  // 컬럼 너비 + 상단 5줄에 대해서는 wide merges
+  ws['!cols'] = colWidths.map(w => ({ wch: w }))
+  const decode = (s: string) => XLSX.utils.decode_range(s)
+  const lastColLetter = XLSX.utils.encode_col(endCol - 1)
+  ws['!merges'] = [
+    decode(`A1:${lastColLetter}1`),
+    decode(`A2:${lastColLetter}2`),
+    decode(`A3:${lastColLetter}3`),
+    decode(`A4:${lastColLetter}4`),
+    decode(`A5:${lastColLetter}5`),
+  ]
+
+  const wb = XLSX.utils.book_new()
+  const sheetName = (inv.vendor_name || '계산서').slice(0, 31)
+  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  const fname = filename || `계산서_${inv.vendor_name}_${inv.issue_date}`
+  XLSX.writeFile(wb, `${fname}.xlsx`)
 }
 
 /** 단일 영수증 다운로드 */
