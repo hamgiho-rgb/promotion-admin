@@ -35,7 +35,7 @@ export interface ReceiptInvoice {
 }
 
 /** 영수증 양식 한 장을 시트(AoA)로 생성 */
-function buildReceiptSheet(inv: ReceiptInvoice): { aoa: any[][]; merges: XLSX.Range[]; cols: { wch: number }[] } {
+function buildReceiptSheet(inv: ReceiptInvoice): { aoa: any[][]; merges: XLSX.Range[]; cols: { wch: number }[]; rows?: { hpx: number }[] } {
   const aoa: any[][] = []
   // 헬퍼: r,c → aoa 인덱스 채우기
   function set(r: number, c: number, val: any) {
@@ -146,28 +146,44 @@ function buildReceiptSheet(inv: ReceiptInvoice): { aoa: any[][]; merges: XLSX.Ra
     range('B35:J35'),
   ]
 
-  // 컬럼 너비
+  // 컬럼 너비 — 한글이 들어가는 셀은 wch * 2 정도 필요. 더 넉넉하게 잡음.
   const cols = [
-    { wch: 2 },   // A
-    { wch: 11 },  // B 날짜
-    { wch: 6 },   // C
-    { wch: 12 },  // D 품명
-    { wch: 6 },   // E
-    { wch: 14 },  // F 품목
-    { wch: 8 },   // G 사이즈
-    { wch: 8 },   // H 수량
-    { wch: 11 },  // I 단가
-    { wch: 13 },  // J 금액
+    { wch: 3 },    // A 좌측 여백
+    { wch: 13 },   // B 날짜
+    { wch: 6 },    // C 보조
+    { wch: 32 },   // D 품명 — 긴 한글/영문 상품명 들어감 (예: DD horseshoe check applique tee)
+    { wch: 6 },    // E 보조
+    { wch: 22 },   // F 품목/컬러
+    { wch: 10 },   // G 사이즈
+    { wch: 10 },   // H 수량
+    { wch: 14 },   // I 단가
+    { wch: 16 },   // J 금액
   ]
 
-  return { aoa, merges, cols }
+  // 행 높이 (병합된 헤더가 잘 보이도록)
+  const rows = [
+    { hpx: 28 },  // 1: 타이틀 영역
+    { hpx: 26 },  // 2: 영수증
+    { hpx: 22 },  // 3: 귀하
+    { hpx: 22 },  // 4: 공급자/사업자번호 헤더
+    { hpx: 22 },  // 5: 상호/성명
+    { hpx: 22 },  // 6
+    { hpx: 22 },  // 7-8: 사업장소재지 (병합) — 주소가 길어서 2줄
+    { hpx: 22 },  // 8
+    { hpx: 22 },  // 9: 작성일/금일금액 헤더
+    { hpx: 22 },  // 10: 작성일/금액 값
+    { hpx: 22 },  // 11: 컬럼 헤더 (날짜 품명 품목 사이즈 ...)
+  ]
+
+  return { aoa, merges, cols, rows }
 }
 
-/** AoA를 시트로 변환하면서 수식/병합/너비 적용 */
+/** AoA를 시트로 변환하면서 수식/병합/너비 적용. 텍스트 셀에는 wrap_text 자동 부여. */
 function aoaToSheetWithFormulas(aoa: any[][]): XLSX.WorkSheet {
   const ws: XLSX.WorkSheet = {}
   const numRows = aoa.length
   const numCols = aoa[0]?.length || 0
+  const wrapStyle = { alignment: { wrapText: true, vertical: 'center' } }
   for (let r = 0; r < numRows; r++) {
     for (let c = 0; c < numCols; c++) {
       const v = aoa[r][c]
@@ -180,7 +196,8 @@ function aoaToSheetWithFormulas(aoa: any[][]): XLSX.WorkSheet {
       } else if (v instanceof Date) {
         ws[addr] = { t: 'd', v, z: 'yyyy-mm-dd' }
       } else {
-        ws[addr] = { t: 's', v: String(v) }
+        // 텍스트 셀 → 자동 줄바꿈 스타일 시도 (커뮤니티 SheetJS 일부 버전에서만 동작)
+        ws[addr] = { t: 's', v: String(v), s: wrapStyle } as any
       }
     }
   }
@@ -190,10 +207,11 @@ function aoaToSheetWithFormulas(aoa: any[][]): XLSX.WorkSheet {
 
 /** 단일 영수증 다운로드 */
 export function exportInvoiceReceipt(inv: ReceiptInvoice, filename?: string) {
-  const { aoa, merges, cols } = buildReceiptSheet(inv)
+  const { aoa, merges, cols, rows } = buildReceiptSheet(inv)
   const ws = aoaToSheetWithFormulas(aoa)
   ws['!merges'] = merges
   ws['!cols'] = cols
+  if (rows) ws['!rows'] = rows
   const wb = XLSX.utils.book_new()
   const sheetName = (inv.notes?.replace(/^\[[^\]]+\]\s*/, '') || inv.issue_date).slice(0, 31)
   XLSX.utils.book_append_sheet(wb, ws, sheetName)
@@ -209,10 +227,11 @@ export function exportInvoiceReceiptsMulti(
   const wb = XLSX.utils.book_new()
   const usedNames = new Set<string>()
   for (const inv of invoices) {
-    const { aoa, merges, cols } = buildReceiptSheet(inv)
+    const { aoa, merges, cols, rows } = buildReceiptSheet(inv)
     const ws = aoaToSheetWithFormulas(aoa)
     ws['!merges'] = merges
     ws['!cols'] = cols
+    if (rows) ws['!rows'] = rows
     let sheetName = (inv.notes?.replace(/^\[[^\]]+\]\s*/, '') || inv.issue_date).slice(0, 31)
     // 중복 시트명 회피
     let n = sheetName, i = 2
