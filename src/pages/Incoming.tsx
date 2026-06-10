@@ -3,7 +3,7 @@ import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Vendor, Product, Incoming, IncomingItem } from '@/lib/types'
 import { Button, Input, Select, Label, PageHeader, Drawer, Empty, Badge, Textarea, Checkbox, BulkBar } from '@/components/ui'
-import { exportMultiSheet, rowsToSheet } from '@/lib/exportXlsx'
+import { exportMultiSheet, rowsToSheet, exportIncomingFull } from '@/lib/exportXlsx'
 import { useBulkSelect } from '@/hooks/useBulkSelect'
 import { softDelete, softDeleteMany } from '@/lib/trash'
 import { todayKR } from '@/lib/datetime'
@@ -121,6 +121,29 @@ export default function IncomingPage() {
    if (error) return alert('삭제 실패: ' + error.message)
    bulk.clear()
    load()
+ }
+
+ /** 단일 입고내역서를 엑셀로 다운로드 — 출력 양식과 동일 */
+ async function exportOneIncoming(inc: Incoming) {
+   const { data: items } = await supabase.from('incoming_items').select('*')
+     .eq('incoming_id', inc.id).order('delivery_date').order('carton_no')
+   const vendor = vendors.find(v => v.id === inc.vendor_id)
+   const sizeLabels = ((vendor as any)?.size_system as string[] | undefined) || []
+   exportIncomingFull({
+     vendor_name: vendorName(inc.vendor_id),
+     period: inc.period,
+     producer: (inc as any).producer,
+     brand: inc.brand,
+     size_labels: sizeLabels,
+     lines: (items || []).map((it: any) => ({
+       product_code: it.product_code,
+       product_name: it.product_name,
+       sizes: it.sizes,
+       total_quantity: it.total_quantity,
+       delivery_date: it.delivery_date,
+       carton_no: it.carton_no,
+     })),
+   })
  }
 
  /**
@@ -642,6 +665,7 @@ export default function IncomingPage() {
                          className="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded bg-violet-50 text-violet-700 border border-violet-200 hover:bg-violet-100 mr-1"
                        >📄 발행됨</button>
                      )}
+                     <Button size="sm" variant="ghost" onClick={() => exportOneIncoming(i)} title="입고내역서 엑셀 다운로드">📥 엑셀</Button>
                      <Button size="sm" variant="ghost" onClick={() => navigate(`/incoming/${i.id}/print`)} title="입고내역서 출력">🖨️ 출력</Button>
                      <Button
                        size="sm"

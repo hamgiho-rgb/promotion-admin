@@ -451,6 +451,145 @@ export function exportInvoiceFull(inv: FullInvoice, filename?: string) {
   XLSX.writeFile(wb, `${fname}.xlsx`)
 }
 
+/* ─────────────────────────────────────────────
+ * 입고내역서 엑셀 — AW 양식과 동일 (사이즈별 컬럼 자동, 모든 라인)
+ * ───────────────────────────────────────────── */
+export interface FullIncomingLine {
+  product_code?: string | null
+  product_name?: string | null
+  sizes?: Record<string, number> | null
+  total_quantity?: number | null
+  delivery_date?: string | null
+  carton_no?: number | null
+}
+export interface FullIncoming {
+  vendor_name: string
+  period?: string | null
+  producer?: string | null
+  brand?: string | null
+  /** 사이즈 라벨 (없으면 lines에서 자동 추출) */
+  size_labels?: string[]
+  lines: FullIncomingLine[]
+}
+
+export function exportIncomingFull(inc: FullIncoming, filename?: string) {
+  // 사이즈 라벨 — 명시 안 했으면 라인의 sizes 키 합집합
+  let sizeLabels = inc.size_labels && inc.size_labels.length > 0 ? inc.size_labels : []
+  if (sizeLabels.length === 0) {
+    const set = new Set<string>()
+    inc.lines.forEach(l => {
+      if (l.sizes) Object.keys(l.sizes).forEach(k => set.add(k))
+    })
+    sizeLabels = Array.from(set).sort((a, b) => {
+      const na = Number(a), nb = Number(b)
+      if (!isNaN(na) && !isNaN(nb)) return na - nb
+      return a.localeCompare(b)
+    })
+  }
+
+  // 한글 시각 너비
+  const vw = (s: string) => [...(s || '')].reduce((a, ch) => a + (ch.charCodeAt(0) > 127 ? 2 : 1), 0)
+
+  // 컬럼 구성: 품번 | 품목 | 사이즈들... | 합계 | 입고일 | C/T
+  const headerCols: string[] = ['품번', '품목']
+  sizeLabels.forEach(s => headerCols.push(s))
+  headerCols.push('합계', '입고일', 'C/T')
+
+  // 컬럼 너비 — 컨텐츠 기반
+  const colWidths: number[] = []
+  let maxCodeW = vw('품번'), maxNameW = vw('품목')
+  inc.lines.forEach(l => {
+    maxCodeW = Math.max(maxCodeW, vw(l.product_code || ''))
+    maxNameW = Math.max(maxNameW, vw(l.product_name || ''))
+  })
+  colWidths.push(Math.max(16, maxCodeW + 2))
+  colWidths.push(Math.max(30, maxNameW + 2))
+  sizeLabels.forEach(label => {
+    let maxW = vw(label) + 2
+    inc.lines.forEach(l => {
+      const v = String(l.sizes?.[label] ?? '')
+      maxW = Math.max(maxW, v.length + 2)
+    })
+    colWidths.push(Math.max(7, maxW))
+  })
+  let maxTotalW = vw('합계')
+  inc.lines.forEach(l => {
+    maxTotalW = Math.max(maxTotalW, String(Number(l.total_quantity || 0).toLocaleString()).length)
+  })
+  colWidths.push(Math.max(8, maxTotalW + 2))
+  colWidths.push(12)  // 입고일
+  colWidths.push(6)   // C/T
+
+  // AoA 구성
+  const aoa: any[][] = []
+  // 상단 헤더 정보
+  aoa.push(['입 고 내 역 서'])
+  aoa.push([`${inc.vendor_name || ''} 귀하`])
+  aoa.push([])
+  // 거래처/기간/생산처 정보 표
+  aoa.push(['업체명', inc.producer || 'AW', '', '기간', inc.period || ''])
+  if (inc.brand) aoa.push(['브랜드', inc.brand])
+  aoa.push([])
+  // 컬럼 헤더
+  aoa.push(headerCols)
+  // 데이터 라인
+  const sizeTotals: Record<string, number> = {}
+  let grandTotal = 0
+  inc.lines.forEach(l => {
+    const row: any[] = [l.product_code || '', l.product_name || '']
+    sizeLabels.forEach(s => {
+      const v = Number(l.sizes?.[s] || 0)
+      row.push(v > 0 ? v : '')
+      sizeTotals[s] = (sizeTotals[s] || 0) + v
+    })
+    const total = Number(l.total_quantity || 0)
+    grandTotal += total
+    row.push(total)
+    row.push(l.delivery_date || '')
+    row.push(l.carton_no ?? '')
+    aoa.push(row)
+  })
+  // 합계 행
+  const totalRow: any[] = ['', '합 계']
+  sizeLabels.forEach(s => totalRow.push(sizeTotals[s] > 0 ? sizeTotals[s] : ''))
+  totalRow.push(grandTotal)
+  totalRow.push('', '')
+  aoa.push(totalRow)
+
+  // 시트 구성
+  const ws: XLSX.WorkSheet = {}
+  for (let r = 0; r < aoa.length; r++) {
+    const row = aoa[r]
+    for (let c = 0; c < row.length; c++) {
+      const v = row[c]
+      if (v == null || v === '') continue
+      const addr = XLSX.utils.encode_cell({ r, c })
+      if (typeof v === 'number') {
+        ws[addr] = { t: 'n', v, z: v >= 1000 || v <= -1000 ? '#,##0' : undefined }
+      } else {
+        ws[addr] = { t: 's', v: String(v) }
+      }
+    }
+  }
+  const maxCols = Math.max(headerCols.length, ...aoa.map(r => r.length))
+  ws['!ref'] = XLSX.utils.encode_range({ s: { r: 0, c: 0 }, e: { r: aoa.length - 1, c: maxCols - 1 } })
+  ws['!cols'] = colWidths.map(w => ({ wch: w }))
+
+  // 타이틀 영역 병합 (1행, 2행)
+  const lastColLetter = XLSX.utils.encode_col(headerCols.length - 1)
+  const decode = (s: string) => XLSX.utils.decode_range(s)
+  ws['!merges'] = [
+    decode(`A1:${lastColLetter}1`),
+    decode(`A2:${lastColLetter}2`),
+  ]
+
+  const wb = XLSX.utils.book_new()
+  const sheetName = (inc.period || inc.vendor_name || '입고').slice(0, 31)
+  XLSX.utils.book_append_sheet(wb, ws, sheetName)
+  const fname = filename || `입고내역서_${inc.vendor_name}_${inc.period || ''}`
+  XLSX.writeFile(wb, `${fname}.xlsx`)
+}
+
 /** 단일 영수증 다운로드 */
 export function exportInvoiceReceipt(inv: ReceiptInvoice, filename?: string) {
   const { aoa, merges, cols, rows } = buildReceiptSheet(inv)
