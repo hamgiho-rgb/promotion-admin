@@ -213,11 +213,13 @@ export function Checkbox({ checked, indeterminate = false, onChange, ariaLabel, 
 }
 
 /* ───── 다중선택 액션바 (상단 sticky) ───── */
-export function BulkBar({ count, onClear, onDelete, label = '항목' }: {
+export function BulkBar({ count, onClear, onDelete, label = '항목', extraActions }: {
   count: number
   onClear: () => void
   onDelete: () => void
   label?: string
+  /** 삭제 버튼 왼쪽에 추가 액션 (예: 통합 발행) */
+  extraActions?: React.ReactNode
 }) {
   if (count === 0) return null
   return (
@@ -232,6 +234,7 @@ export function BulkBar({ count, onClear, onDelete, label = '항목' }: {
         선택 해제
       </button>
       <div className="ml-auto flex items-center gap-2">
+        {extraActions}
         <button
           onClick={onDelete}
           className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium bg-rose-600 hover:bg-rose-700 rounded-md transition-colors"

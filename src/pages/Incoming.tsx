@@ -39,11 +39,11 @@ export default function IncomingPage() {
  const [statsMap, setStatsMap] = useState<Map<string, IncomingStats>>(new Map())
  const [loading, setLoading] = useState(true)
  const [vendorFilter, setVendorFilter] = useState<string>('all')
- const thisYearMonth = `${new Date().getFullYear()}.${String(new Date().getMonth() + 1).padStart(2, '0')}`
  // URL ?month=YYYY.MM 또는 YYYY-MM 둘 다 허용 (대시보드 카드에서 넘어올 때)
  const urlMonthRaw = searchParams.get('month')
  const urlMonth = urlMonthRaw ? urlMonthRaw.replace('-', '.') : null
- const [monthFilter, setMonthFilter] = useState<string>(urlMonth ?? thisYearMonth)
+ // 기본 "전체 기간" — 5월/6월 등 여러 달 한 번에 보이게. URL 파라미터 있으면 그쪽 우선.
+ const [monthFilter, setMonthFilter] = useState<string>(urlMonth ?? 'all')
  const [search, setSearch] = useState('')
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Incoming | null>(null)
@@ -121,6 +121,136 @@ export default function IncomingPage() {
    if (error) return alert('삭제 실패: ' + error.message)
    bulk.clear()
    load()
+ }
+
+ /**
+  * 선택한 여러 입고를 한 계산서로 통합 발행
+  * - 같은 거래처여야 함
+  * - 모든 입고의 라인을 (상품 × 컬러)별로 합쳐서 한 계산서에 넣음
+  * - 사이즈는 sizes JSON에 누적
+  * - 단가는 products.selling_price 자동 매칭
+  */
+ async function convertManyToInvoice() {
+   const ids = Array.from(bulk.selected)
+   if (ids.length === 0) return
+   const selectedIncs = list.filter(i => ids.includes(i.id))
+   // 거래처 동일 검사
+   const vendorIds = Array.from(new Set(selectedIncs.map(i => i.vendor_id)))
+   if (vendorIds.length > 1) {
+     alert('통합 발행은 같은 거래처끼리만 가능합니다.\n선택한 입고들의 거래처가 서로 달라요.')
+     return
+   }
+   const vendorId = vendorIds[0]
+   const vendor = vendors.find(v => v.id === vendorId)
+   const periodsStr = selectedIncs.map(i => i.period || '?').join(' + ')
+
+   // 모든 라인 로드
+   const { data: rawItems } = await supabase.from('incoming_items').select('*').in('incoming_id', ids)
+   const items = (rawItems ?? []).filter(it => !isSummaryItem(it))
+   if (items.length === 0) return alert('통합할 입고 라인이 없어요.')
+
+   // 카탈로그
+   const { data: prods } = await supabase.from('products').select('id, code, name, selling_price, color')
+     .eq('vendor_id', vendorId).is('deleted_at', null)
+   const byId = new Map<string, any>()
+   const byCode = new Map<string, any>()
+   const byName = new Map<string, any>()
+   ;(prods ?? []).forEach((p: any) => {
+     byId.set(p.id, p)
+     if (p.code) byCode.set(String(p.code).trim().toLowerCase(), p)
+     if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
+   })
+
+   // (상품 × 컬러)별 합치기 + 사이즈 누적
+   const lineMap = new Map<string, any>()
+   items.forEach((it: any) => {
+     const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
+     let prod = it.product_id ? byId.get(it.product_id) : null
+     if (!prod) {
+       const codeKey = (it.product_code || '').toString().trim().toLowerCase()
+       const nameKey = (it.product_name || '').toString().trim().toLowerCase()
+       prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
+     }
+     const colorKey = prod?.color || ''
+     const k = `${pKey}__${colorKey}`
+     const existing = lineMap.get(k)
+     const sizes = it.sizes || {}
+     if (existing) {
+       Object.entries(sizes).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) existing.sizes[sz] = (existing.sizes[sz] || 0) + num
+       })
+       existing.quantity += Number(it.total_quantity || 0)
+     } else {
+       const newSizes: Record<string, number> = {}
+       Object.entries(sizes).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) newSizes[sz] = num
+       })
+       lineMap.set(k, {
+         line_date: null,
+         product_id: prod?.id || it.product_id || null,
+         product_name: prod?.name || it.product_name || it.product_code || '',
+         color: prod?.color || null,
+         size: null,
+         sizes: newSizes,
+         quantity: Number(it.total_quantity || 0),
+         unit_price: Number(prod?.selling_price ?? 0),
+       })
+     }
+   })
+   const lines = Array.from(lineMap.values()).sort((a, b) =>
+     (a.product_name || '').localeCompare(b.product_name || '') ||
+     (a.color || '').localeCompare(b.color || '')
+   )
+   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0)
+   const vat = Math.round(subtotal * 0.1)
+   const total = subtotal + vat
+   const noPriceCount = lines.filter(l => !l.unit_price).length
+
+   const msg =
+     `📋 ${selectedIncs.length}개 입고 통합 발행\n` +
+     `거래처: ${vendor?.name || '—'}\n` +
+     `기간: ${periodsStr}\n` +
+     `라인: ${lines.length}개 (총 ${lines.reduce((s, l) => s + l.quantity, 0).toLocaleString()}장)\n` +
+     `금액: ₩${total.toLocaleString()}\n` +
+     (noPriceCount > 0 ? `⚠ 단가 미매칭 ${noPriceCount}건\n` : '') +
+     `\n한 계산서로 발행할까요?`
+   if (!confirm(msg)) return
+
+   const headerPayload = {
+     vendor_id: vendorId,
+     issue_date: todayKR(),
+     supplier_business_number: '216-21-18212',
+     supplier_name: '써치(SEARCH)',
+     supplier_ceo: '함기호',
+     supplier_address: '서울시 동대문구 안암로 16길 4, 2층',
+     bank_info: '함기호(써치) 국민은행 038737-04-002188',
+     subtotal, vat, total,
+     incoming_id: selectedIncs[0].id,   // 대표 입고 (첫 번째)
+     deposit_amount: 0,
+     notes: `통합 발행: ${periodsStr} (${selectedIncs.length}개 입고 합산)`,
+   }
+   const { data: created, error } = await supabase.from('invoices').insert(headerPayload).select().single()
+   if (error) { alert('계산서 생성 실패: ' + error.message); return }
+   const linePayload = lines.map((l, idx) => ({ invoice_id: created.id, ...l, sort_order: idx }))
+   await supabase.from('invoice_items').insert(linePayload)
+
+   logAction({
+     action: 'convert',
+     entity_type: 'invoice',
+     entity_id: created.id,
+     entity_label: `${vendor?.name || '—'} ${periodsStr}`,
+     summary: `입고 통합 → 계산서 발행 (${selectedIncs.length}개 입고 / ${lines.length}개 라인 · ₩${total.toLocaleString()})`,
+     details: { from_incoming_ids: ids, to_invoice_id: created.id, total },
+   })
+
+   bulk.clear()
+   if (confirm(`✅ 발행 완료 — 계산서 편집 화면으로 이동할까요?`)) {
+     navigate(`/invoices?edit=${created.id}`)
+   } else {
+     load()
+   }
  }
 
  /** 입고 → 계산서 자동 발행 (증분 모드).
@@ -342,7 +472,21 @@ export default function IncomingPage() {
  </>}
  />
 
- <BulkBar count={bulk.count} onClear={bulk.clear} onDelete={handleBulkDelete} label="입고내역서" />
+ <BulkBar
+   count={bulk.count}
+   onClear={bulk.clear}
+   onDelete={handleBulkDelete}
+   label="입고내역서"
+   extraActions={
+     <button
+       onClick={convertManyToInvoice}
+       className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors"
+       title="선택한 여러 입고를 한 계산서로 통합 발행 (5월+6월 등)"
+     >
+       📋 통합 발행 → 한 계산서 ({bulk.count})
+     </button>
+   }
+ />
 
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
  <StatCard

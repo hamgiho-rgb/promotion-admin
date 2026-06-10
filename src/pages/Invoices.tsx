@@ -28,12 +28,14 @@ export default function InvoicesPage() {
  // URL ?vendor=ID → 그 거래처로 자동 필터 (거래처 페이지에서 [계산서 →] 누르고 옴)
  const urlVendor = searchParams.get('vendor')
  const [vendorFilter, setVendorFilter] = useState<string>(urlVendor || 'all')
- const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
+ // (참고용 — 기본값은 'all' 로 변경됨)
+ // const thisYearMonth = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`
  // URL ?month=YYYY-MM 또는 ?year=YYYY 를 읽어서 초기 필터 설정 (대시보드 카드에서 넘어올 때)
  const urlMonth = searchParams.get('month')
  const urlYear = searchParams.get('year')
  // 거래처 필터 들어오면 기간은 전체로 (그 거래처의 모든 계산서 보기 위해)
- const initialMonth = urlMonth ? urlMonth : urlYear ? `year:${urlYear}` : urlVendor ? 'all' : thisYearMonth
+ // 기본 "전체 기간" — 미수 여러 달 한 번에 보이게
+ const initialMonth = urlMonth ? urlMonth : urlYear ? `year:${urlYear}` : 'all'
  const [monthFilter, setMonthFilter] = useState<string>(initialMonth)
  const [search, setSearch] = useState('')
  const bulk = useBulkSelect()
@@ -81,6 +83,109 @@ export default function InvoicesPage() {
    if (error) return alert(error.message)
    bulk.clear()
    load()
+ }
+
+ /** 선택한 여러 계산서를 한 계산서로 합치기
+  *  - 같은 거래처여야 함
+  *  - 모든 invoice_items 의 라인을 (상품 × 컬러)별로 합쳐서 새 계산서 생성
+  *  - 사이즈는 sizes JSON 누적
+  *  - 합치고 나면 원본 계산서들은 휴지통으로 이동 (복구 가능)
+  */
+ async function handleMergeInvoices() {
+   const ids = Array.from(bulk.selected)
+   if (ids.length < 2) { alert('합치려면 2개 이상의 계산서를 선택해주세요.'); return }
+   const selectedInvs = list.filter(i => ids.includes(i.id))
+   const vendorIds = Array.from(new Set(selectedInvs.map(i => i.vendor_id)))
+   if (vendorIds.length > 1) {
+     alert('통합은 같은 거래처끼리만 가능합니다.\n선택한 계산서들의 거래처가 서로 달라요.')
+     return
+   }
+   const vendorId = vendorIds[0]
+   const vendorNm = vendorName(vendorId)
+   const totalAmt = selectedInvs.reduce((s, i) => s + Number(i.total || 0), 0)
+
+   if (!confirm(
+     `📋 ${ids.length}개 계산서를 한 계산서로 합칠까요?\n\n` +
+     `거래처: ${vendorNm}\n` +
+     `합산 금액: ₩${totalAmt.toLocaleString()}\n\n` +
+     `· (상품 × 컬러) 별로 수량/사이즈가 합쳐집니다\n` +
+     `· 원본 계산서 ${ids.length}건은 휴지통으로 이동 (복구 가능)\n` +
+     `· 단가는 첫 번째 계산서의 단가를 따름`
+   )) return
+
+   // 모든 라인 로드
+   const { data: allItems } = await supabase.from('invoice_items').select('*').in('invoice_id', ids).order('sort_order')
+
+   // (상품 × 컬러)별 머지
+   const lineMap = new Map<string, any>()
+   ;(allItems ?? []).forEach((it: any) => {
+     const k = `${it.product_id || it.product_name || ''}__${it.color || ''}`
+     const sizes = it.sizes || {}
+     const existing = lineMap.get(k)
+     if (existing) {
+       Object.entries(sizes).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) existing.sizes[sz] = (existing.sizes[sz] || 0) + num
+       })
+       existing.quantity += Number(it.quantity || 0)
+       // 단가는 기존 유지
+     } else {
+       const newSizes: Record<string, number> = {}
+       Object.entries(sizes).forEach(([sz, n]) => {
+         const num = Number(n) || 0
+         if (num > 0) newSizes[sz] = num
+       })
+       lineMap.set(k, {
+         line_date: null,
+         product_id: it.product_id || null,
+         product_name: it.product_name || '',
+         color: it.color || null,
+         size: null,
+         sizes: newSizes,
+         quantity: Number(it.quantity || 0),
+         unit_price: Number(it.unit_price || 0),
+       })
+     }
+   })
+   const lines = Array.from(lineMap.values()).sort((a, b) =>
+     (a.product_name || '').localeCompare(b.product_name || '') ||
+     (a.color || '').localeCompare(b.color || '')
+   )
+   const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0)
+   const vat = Math.round(subtotal * 0.1)
+   const total = subtotal + vat
+
+   // 첫 번째 계산서의 헤더 정보 차용
+   const first = selectedInvs[0]
+   const periodsStr = selectedInvs.map(i => i.issue_date?.slice(0, 7) || '?').join(' + ')
+   const headerPayload = {
+     vendor_id: vendorId,
+     issue_date: first.issue_date || new Date().toISOString().slice(0, 10),
+     supplier_business_number: first.supplier_business_number,
+     supplier_name: first.supplier_name,
+     supplier_ceo: first.supplier_ceo,
+     supplier_address: first.supplier_address,
+     bank_info: first.bank_info,
+     subtotal, vat, total,
+     incoming_id: first.incoming_id,
+     deposit_amount: 0,
+     notes: `통합 계산서: ${periodsStr} (${ids.length}건 합산)`,
+   }
+   const { data: created, error } = await supabase.from('invoices').insert(headerPayload).select().single()
+   if (error) { alert('통합 계산서 생성 실패: ' + error.message); return }
+   const linePayload = lines.map((l, idx) => ({ invoice_id: created.id, ...l, sort_order: idx }))
+   const { error: liErr } = await supabase.from('invoice_items').insert(linePayload)
+   if (liErr) { alert('라인 생성 실패: ' + liErr.message); return }
+
+   // 원본 계산서들은 휴지통으로
+   await softDeleteMany('invoices', ids)
+
+   bulk.clear()
+   if (confirm(`✅ 통합 완료 — 새 계산서 편집 화면으로 이동할까요?`)) {
+     navigate(`/invoices?edit=${created.id}`)
+   } else {
+     load()
+   }
  }
 
  async function exportOne(inv: Invoice) {
@@ -188,7 +293,21 @@ export default function InvoicesPage() {
  </>}
  />
 
- <BulkBar count={bulk.count} onClear={bulk.clear} onDelete={handleBulkDelete} label="계산서" />
+ <BulkBar
+   count={bulk.count}
+   onClear={bulk.clear}
+   onDelete={handleBulkDelete}
+   label="계산서"
+   extraActions={bulk.count >= 2 ? (
+     <button
+       onClick={handleMergeInvoices}
+       className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors"
+       title="선택한 여러 계산서를 한 계산서로 합치기 (5월+6월 등)"
+     >
+       📋 한 계산서로 합치기 ({bulk.count})
+     </button>
+   ) : null}
+ />
 
  {/* 상단 요약 카드 */}
  <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4">
