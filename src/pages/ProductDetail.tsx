@@ -103,6 +103,7 @@ export default function ProductDetail() {
   const productionCost = costItems.reduce((s, c) => s + Number(c.subtotal || 0), 0)
   const margin = Number(product.selling_price || 0) - productionCost
   const marginRate = product.selling_price > 0 ? (margin / product.selling_price) * 100 : 0
+  const markup = productionCost > 0 ? (margin / productionCost) * 100 : 0   // 원가 대비 마크업 %
 
   // 공급처별로 재료 묶기
   const supplierGroups = costItems.reduce<Record<string, { supplier: Vendor | undefined; items: CostItemWithSupplier[] }>>((acc, c) => {
@@ -166,7 +167,7 @@ export default function ProductDetail() {
         <StatCard
           label="마진"
           value={`₩${Math.round(margin).toLocaleString()}`}
-          hint={costItems.length > 0 ? `${marginRate.toFixed(1)}%` : '원가 미입력'}
+          hint={costItems.length > 0 ? `마진율 ${marginRate.toFixed(1)}% · 마크업 ${markup.toFixed(0)}%` : '원가 미입력'}
           highlight={margin > 0 ? 'green' : margin < 0 ? 'rose' : 'zinc'}
         />
         <StatCard label="누적 입고" value={`${totalIncoming.toLocaleString()}장`} hint={`${incomingHistory.length}건`} />

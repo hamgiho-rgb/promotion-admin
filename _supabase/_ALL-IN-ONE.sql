@@ -227,6 +227,14 @@ create unique index if not exists products_vendor_code_alive_uq
   on products(vendor_id, code)
   where deleted_at is null;
 
+-- ────────────────────────────────────────
+-- 11. 계산서 수금액 (받은 금액) — 잔금 계산용
+--     deposit_amount = 견적서 계약금
+--     received_amount = 발행 후 추가로 받은 금액 (수금)
+--     잔금 = total - deposit_amount - received_amount
+-- ────────────────────────────────────────
+alter table invoices add column if not exists received_amount numeric default 0;
+
 -- ════════════════════════════════════════════════════════════════════
 -- 끝! 다 한 번에 실행됨. 다시 실행해도 안전 (멱등).
 -- ════════════════════════════════════════════════════════════════════

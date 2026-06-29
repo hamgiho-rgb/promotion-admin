@@ -105,7 +105,8 @@ export interface Invoice {
   quotation_id: string | null
   // 입고내역서 연결 — 입고 → 계산서 자동 발행 시 추적
   incoming_id: string | null
-  deposit_amount: number   // 견적서에서 받은 계약금 (계산서 발행 시 차감 → 청구 잔금 = total - deposit_amount)
+  deposit_amount: number   // 견적서에서 받은 계약금 (계산서 발행 시 차감)
+  received_amount?: number // 발행 후 추가로 받은 수금액 (잔금 = total - deposit - received)
   paid_at: string | null   // 입금 완료 시점 (null이면 미수)
   notes: string | null
   created_at: string

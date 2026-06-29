@@ -300,7 +300,8 @@ export default function Products() {
  const m = margins.get(p.id)
  const cost = Number(m?.production_cost || 0)
  const margin = Number(m?.margin || 0)
- const rate = Number(m?.margin_rate || 0)
+ const rate = Number(m?.margin_rate || 0)             // 판매가 대비 마진율 %
+ const markup = cost > 0 ? (margin / cost) * 100 : 0  // 원가 대비 마크업 %
  const isSelected = selected.has(p.id)
  return (
  <tr key={p.id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${isSelected ? 'bg-rose-50/40' : ''}`}>
@@ -347,7 +348,9 @@ export default function Products() {
  {cost > 0 ? (
  <div className={`text-[12px] tabular-nums ${margin > 0 ? 'text-emerald-700' : margin < 0 ? 'text-rose-700' : 'text-zinc-500'}`}>
  <div className="font-bold">₩{margin.toLocaleString()}</div>
- <div className="text-[10px] opacity-70">{rate.toFixed(1)}%</div>
+ <div className="text-[10px] opacity-70" title="마진율 (판매가 대비) / 마크업 (원가 대비)">
+   {rate.toFixed(1)}% <span className="text-zinc-400">·</span> ↑{markup.toFixed(0)}%
+ </div>
  </div>
  ) : (
  <span className="text-zinc-300 text-[11px]">—</span>

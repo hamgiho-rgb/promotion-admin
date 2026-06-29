@@ -134,6 +134,7 @@ export default function CostBreakdown() {
   const productionCost = items.reduce((sum, i) => sum + Number(i.subtotal || 0), 0)
   const margin = (selectedProduct?.selling_price || 0) - productionCost
   const marginRate = selectedProduct?.selling_price ? (margin / selectedProduct.selling_price) * 100 : 0
+  const markup = productionCost > 0 ? (margin / productionCost) * 100 : 0   // 원가 대비 마크업 %
 
   async function addItem(supplierId?: string | null) {
     if (!selectedId) return
@@ -243,6 +244,7 @@ export default function CostBreakdown() {
     const totalCost = items.reduce((s, i) => s + Number(i.subtotal || 0), 0)
     const marginVal = sellingPrice - totalCost
     const marginPct = sellingPrice ? (marginVal / sellingPrice) * 100 : 0
+    const markupPct = totalCost > 0 ? (marginVal / totalCost) * 100 : 0   // 원가 대비 마크업
 
     const rows: any[][] = []
     // 상품 정보
@@ -267,7 +269,9 @@ export default function CostBreakdown() {
     rows.push([])
     rows.push(['', '', '', '생산원가 합계', Math.round(totalCost)])
     rows.push(['', '', '', '판매가', sellingPrice])
-    rows.push(['', '', '', `마진 (${marginPct.toFixed(1)}%)`, Math.round(marginVal)])
+    rows.push(['', '', '', '마진', Math.round(marginVal)])
+    rows.push(['', '', '', `마진율 (판매가 대비)`, `${marginPct.toFixed(1)}%`])
+    rows.push(['', '', '', `마크업 (원가 대비)`, `${markupPct.toFixed(1)}%`])
 
     const safeCode = (selectedProduct.code || 'product').replace(/[\\/:*?"<>|]/g, '_')
     exportSheet(rows, '원가내역서', `원가내역서_${safeCode}`)
@@ -569,7 +573,7 @@ export default function CostBreakdown() {
                   <SummaryCard
                     label={`마진 ${marginRate ? `(${marginRate.toFixed(1)}%)` : ''}`}
                     value={`₩${margin.toLocaleString()}`}
-                    hint="판매가 − 원가"
+                    hint={markup ? `마진율 ${marginRate.toFixed(1)}% · 마크업 ${markup.toFixed(1)}% (원가 대비)` : '판매가 − 원가'}
                     highlight={margin > 0 ? 'green' : margin < 0 ? 'rose' : 'zinc'}
                   />
                 </div>

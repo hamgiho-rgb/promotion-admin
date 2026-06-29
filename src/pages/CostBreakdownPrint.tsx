@@ -57,6 +57,7 @@ export default function CostBreakdownPrint() {
   const sellingPrice = Number(product.selling_price || 0)
   const margin = sellingPrice - total
   const marginRate = sellingPrice ? (margin / sellingPrice) * 100 : 0
+  const markup = total > 0 ? (margin / total) * 100 : 0   // 원가 대비 마크업 %
 
   const today = new Date().toLocaleDateString('ko-KR', { timeZone: 'Asia/Seoul', year: 'numeric', month: 'long', day: 'numeric' })
 
@@ -172,7 +173,10 @@ export default function CostBreakdownPrint() {
                 <td className="px-3 py-2 text-right tabular-nums">₩{Math.round(total).toLocaleString()}</td>
               </tr>
               <tr className={margin >= 0 ? 'bg-emerald-50' : 'bg-rose-50'}>
-                <td className="px-3 py-2.5 font-semibold border-r border-zinc-200">마진 {marginRate ? `(${marginRate.toFixed(1)}%)` : ''}</td>
+                <td className="px-3 py-2.5 font-semibold border-r border-zinc-200">
+                  마진
+                  {marginRate ? <span className="text-[11px] text-zinc-600 font-normal ml-1">(마진율 {marginRate.toFixed(1)}% / 마크업 {markup.toFixed(0)}%)</span> : ''}
+                </td>
                 <td className={`px-3 py-2.5 text-right tabular-nums font-bold text-[14px] ${margin >= 0 ? 'text-emerald-700' : 'text-rose-700'}`}>
                   ₩{Math.round(margin).toLocaleString()}
                 </td>

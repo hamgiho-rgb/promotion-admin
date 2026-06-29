@@ -304,14 +304,29 @@ export default function InvoicesPage() {
    onClear={bulk.clear}
    onDelete={handleBulkDelete}
    label="계산서"
-   extraActions={bulk.count >= 2 ? (
-     <button
-       onClick={handleMergeInvoices}
-       className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors"
-       title="선택한 여러 계산서를 한 계산서로 합치기 (5월+6월 등)"
-     >
-       📋 한 계산서로 합치기 ({bulk.count})
-     </button>
+   extraActions={bulk.count >= 1 ? (
+     <>
+       <button
+         onClick={() => {
+           const ids = Array.from(bulk.selected)
+           if (ids.length === 0) return
+           window.open(`/invoices/statement?ids=${ids.join(',')}`, '_blank')
+         }}
+         className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium bg-blue-600 hover:bg-blue-700 text-white rounded-md transition-colors"
+         title="선택한 계산서들을 합산 정산서로 — 수금/잔금까지 표시"
+       >
+         📊 정산서 보기 ({bulk.count})
+       </button>
+       {bulk.count >= 2 && (
+         <button
+           onClick={handleMergeInvoices}
+           className="inline-flex items-center gap-1 px-3 py-1.5 text-[12px] font-medium bg-emerald-600 hover:bg-emerald-700 rounded-md transition-colors"
+           title="선택한 여러 계산서를 한 계산서로 합치기 (5월+6월 등)"
+         >
+           📋 한 계산서로 합치기 ({bulk.count})
+         </button>
+       )}
+     </>
    ) : null}
  />
 
