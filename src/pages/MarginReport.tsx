@@ -112,6 +112,49 @@ export default function MarginReport() {
  return acc
  }, {})
 
+ // 거래처별 요약 (매출 / 원가 / 마진 / 마진율) — 마진 큰 순
+ const vendorSummary = Object.entries(grouped).map(([vId, lines]) => {
+   const revenue = lines.reduce((s, l) => s + l.revenue, 0)
+   const cost = lines.reduce((s, l) => s + l.total_cost, 0)
+   const margin = revenue - cost
+   const rate = revenue > 0 ? (margin / revenue) * 100 : 0
+   const qty = lines.reduce((s, l) => s + l.quantity, 0)
+   return {
+     vendor_id: vId,
+     vendor_name: lines[0].vendor_name,
+     count: lines.length,
+     qty,
+     revenue,
+     cost,
+     margin,
+     rate,
+   }
+ }).sort((a, b) => b.margin - a.margin)
+
+ // 거래처 그룹 접기 상태 (localStorage)
+ const COLLAPSE_KEY = 'margin_report_collapsed_vendors'
+ const [collapsedVendors, setCollapsedVendors] = useState<Set<string>>(() => {
+   try { const raw = localStorage.getItem(COLLAPSE_KEY); return new Set(raw ? JSON.parse(raw) : []) }
+   catch { return new Set() }
+ })
+ function toggleVendorCollapse(vId: string) {
+   setCollapsedVendors(prev => {
+     const next = new Set(prev)
+     if (next.has(vId)) next.delete(vId); else next.add(vId)
+     try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(Array.from(next))) } catch {}
+     return next
+   })
+ }
+ function collapseAllVendors() {
+   const allIds = Object.keys(grouped)
+   setCollapsedVendors(new Set(allIds))
+   try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify(allIds)) } catch {}
+ }
+ function expandAllVendors() {
+   setCollapsedVendors(new Set())
+   try { localStorage.setItem(COLLAPSE_KEY, JSON.stringify([])) } catch {}
+ }
+
  // 전체 합계
  const totalQty = filtered.reduce((s, l) => s + l.quantity, 0)
  const totalRevenue = filtered.reduce((s, l) => s + l.revenue, 0)
@@ -217,6 +260,82 @@ export default function MarginReport() {
  />
  </div>
 
+ {/* 거래처별 마진 요약 — 매출/원가/마진/마진율 한 줄씩 */}
+ {vendorSummary.length > 0 && (
+   <div className="bg-white border border-zinc-200 rounded-2xl overflow-hidden mb-4">
+     <div className="px-4 py-2.5 bg-zinc-50 border-b border-zinc-100 flex items-center justify-between">
+       <h3 className="text-[13px] font-semibold text-zinc-800">🏢 거래처별 마진 요약</h3>
+       <span className="text-[11px] text-zinc-500">{vendorSummary.length}개 거래처 · 마진 큰 순</span>
+     </div>
+     <div className="overflow-x-auto">
+       <table className="w-full text-[12px]">
+         <thead className="bg-zinc-50/50">
+           <tr className="text-left text-[10px] font-semibold uppercase text-zinc-500">
+             <th className="px-4 py-2">거래처</th>
+             <th className="px-3 py-2 text-right w-16">건수</th>
+             <th className="px-3 py-2 text-right w-20">수량</th>
+             <th className="px-3 py-2 text-right w-28">매출</th>
+             <th className="px-3 py-2 text-right w-28">원가</th>
+             <th className="px-3 py-2 text-right w-28">마진</th>
+             <th className="px-3 py-2 text-right w-16">마진율</th>
+             <th className="px-3 py-2 text-right w-16">마크업</th>
+             <th className="px-3 py-2 text-right w-16"></th>
+           </tr>
+         </thead>
+         <tbody>
+           {vendorSummary.map(v => (
+             <tr key={v.vendor_id} className={`border-t border-zinc-100 hover:bg-zinc-50/50 ${vendorFilter === v.vendor_id ? 'bg-blue-50/50' : ''}`}>
+               <td className="px-4 py-2">
+                 <button
+                   onClick={() => setVendorFilter(vendorFilter === v.vendor_id ? 'all' : v.vendor_id)}
+                   className="text-left hover:underline text-zinc-900 font-medium"
+                   title={vendorFilter === v.vendor_id ? '필터 해제' : '이 거래처만 보기'}
+                 >
+                   {v.vendor_name}
+                 </button>
+               </td>
+               <td className="px-3 py-2 text-right tabular-nums text-zinc-600">{v.count}</td>
+               <td className="px-3 py-2 text-right tabular-nums text-zinc-600">{v.qty.toLocaleString()}</td>
+               <td className="px-3 py-2 text-right tabular-nums">₩{v.revenue.toLocaleString()}</td>
+               <td className="px-3 py-2 text-right tabular-nums text-zinc-600">₩{v.cost.toLocaleString()}</td>
+               <td className={`px-3 py-2 text-right tabular-nums font-semibold ${v.margin > 0 ? 'text-emerald-700' : v.margin < 0 ? 'text-rose-700' : 'text-zinc-500'}`}>
+                 ₩{v.margin.toLocaleString()}
+               </td>
+               <td className={`px-3 py-2 text-right tabular-nums ${v.rate > 0 ? 'text-emerald-700' : v.rate < 0 ? 'text-rose-700' : 'text-zinc-500'}`}>
+                 {v.cost > 0 ? `${v.rate.toFixed(1)}%` : '—'}
+               </td>
+               <td className="px-3 py-2 text-right tabular-nums text-zinc-500 text-[11px]">
+                 {v.cost > 0 ? `${((v.margin / v.cost) * 100).toFixed(0)}%` : '—'}
+               </td>
+               <td className="px-3 py-2 text-right">
+                 <button
+                   onClick={() => setVendorFilter(v.vendor_id)}
+                   className="text-[10px] text-blue-600 hover:underline"
+                 >이 거래처만 →</button>
+               </td>
+             </tr>
+           ))}
+         </tbody>
+         <tfoot className="bg-zinc-900 text-white">
+           <tr>
+             <td className="px-4 py-2.5 font-semibold">합 계</td>
+             <td className="px-3 py-2.5 text-right tabular-nums">{vendorSummary.reduce((s, v) => s + v.count, 0)}</td>
+             <td className="px-3 py-2.5 text-right tabular-nums">{vendorSummary.reduce((s, v) => s + v.qty, 0).toLocaleString()}</td>
+             <td className="px-3 py-2.5 text-right tabular-nums">₩{totalRevenue.toLocaleString()}</td>
+             <td className="px-3 py-2.5 text-right tabular-nums">₩{totalCost.toLocaleString()}</td>
+             <td className={`px-3 py-2.5 text-right tabular-nums font-bold ${totalMargin >= 0 ? 'text-emerald-300' : 'text-rose-300'}`}>₩{totalMargin.toLocaleString()}</td>
+             <td className="px-3 py-2.5 text-right tabular-nums">{avgMarginRate.toFixed(1)}%</td>
+             <td className="px-3 py-2.5 text-right tabular-nums text-zinc-300">
+               {totalCost > 0 ? `${((totalMargin / totalCost) * 100).toFixed(0)}%` : '—'}
+             </td>
+             <td className="px-3 py-2.5"></td>
+           </tr>
+         </tfoot>
+       </table>
+     </div>
+   </div>
+ )}
+
  {/* 상품별 마진 TOP / BOTTOM */}
  {productList.length > 0 && (
    <div className="grid grid-cols-1 md:grid-cols-2 gap-3 mb-4">
@@ -319,6 +438,8 @@ export default function MarginReport() {
  <div className="flex-1 min-w-[200px] max-w-md">
  <Input value={search} onChange={e => setSearch(e.target.value)} />
  </div>
+ <button onClick={collapseAllVendors} className="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50">▾ 전체 접기</button>
+ <button onClick={expandAllVendors} className="text-[11px] px-2 py-1 rounded border border-zinc-200 bg-white text-zinc-600 hover:bg-zinc-50">▸ 전체 펼치기</button>
  </div>
 
  {loading ? (
@@ -337,10 +458,15 @@ export default function MarginReport() {
  const vCost = vendorLines.reduce((s, l) => s + l.total_cost, 0)
  const vMargin = vRevenue - vCost
  const vRate = vRevenue > 0 ? (vMargin / vRevenue) * 100 : 0
+ const isCollapsed = collapsedVendors.has(vId)
  return (
  <div key={vId}>
- <div className="px-4 py-2.5 bg-zinc-50 border-y border-zinc-100 flex items-center justify-between flex-wrap gap-2">
+ <button
+   onClick={() => toggleVendorCollapse(vId)}
+   className="w-full px-4 py-2.5 bg-zinc-50 hover:bg-zinc-100 border-y border-zinc-100 flex items-center justify-between flex-wrap gap-2 text-left transition-colors"
+ >
  <div className="flex items-center gap-2">
+ <span className={`text-zinc-400 text-[10px] transition-transform inline-block ${isCollapsed ? '' : 'rotate-90'}`}>▶</span>
  <Badge color="green">{vendorLines[0].vendor_name}</Badge>
  <span className="text-[11px] text-zinc-500">{vendorLines.length}건 · {vendorLines.reduce((s, l) => s + l.quantity, 0).toLocaleString()}장</span>
  </div>
@@ -351,7 +477,8 @@ export default function MarginReport() {
  마진 ₩{vMargin.toLocaleString()} ({vRate.toFixed(1)}%)
  </span>
  </div>
- </div>
+ </button>
+ {!isCollapsed && (
  <table className="w-full text-[12px]">
  <thead>
  <tr className="text-left text-[10px] font-semibold uppercase text-zinc-500">
@@ -392,6 +519,7 @@ export default function MarginReport() {
  ))}
  </tbody>
  </table>
+ )}
  </div>
  )
  })}

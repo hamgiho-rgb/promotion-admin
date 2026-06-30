@@ -8,17 +8,58 @@ import VendorSearchSelect from '@/components/VendorSearchSelect'
 import FlatImportButton from '@/components/FlatImportButton'
 import { softDelete, softDeleteMany } from '@/lib/trash'
 
+/* ─────────────────────────────────────────────
+ * 페이지 상태(필터/검색/스크롤) — 다른 페이지 갔다가 뒤로가기 해도 그대로 유지
+ * sessionStorage에 저장 (탭 닫으면 사라짐)
+ * ───────────────────────────────────────────── */
+const STATE_KEY = 'products_page_state'
+function loadPageState() {
+  try {
+    const raw = sessionStorage.getItem(STATE_KEY)
+    return raw ? JSON.parse(raw) : {}
+  } catch { return {} }
+}
+function savePageState(patch: Record<string, any>) {
+  try {
+    const cur = loadPageState()
+    sessionStorage.setItem(STATE_KEY, JSON.stringify({ ...cur, ...patch }))
+  } catch {}
+}
+
 export default function Products() {
  const navigate = useNavigate()
  const [products, setProducts] = useState<Product[]>([])
  const [margins, setMargins] = useState<Map<string, ProductMargin>>(new Map())
  const [vendors, setVendors] = useState<Vendor[]>([])
  const [loading, setLoading] = useState(true)
- const [search, setSearch] = useState('')
- const [vendorFilter, setVendorFilter] = useState<string>('all')
- const [priceFilter, setPriceFilter] = useState<'all' | 'missing'>('all')   // 판매가 미입력 필터
+ // 초기값은 sessionStorage 에서 복원 (뒤로가기 시 이전 검색/필터 유지)
+ const _saved = loadPageState()
+ const [search, setSearch] = useState<string>(_saved.search ?? '')
+ const [vendorFilter, setVendorFilter] = useState<string>(_saved.vendorFilter ?? 'all')
+ const [priceFilter, setPriceFilter] = useState<'all' | 'missing'>(_saved.priceFilter ?? 'all')
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Product | null>(null)
+
+ // 상태 변경 시 sessionStorage 동기화
+ useEffect(() => { savePageState({ search }) }, [search])
+ useEffect(() => { savePageState({ vendorFilter }) }, [vendorFilter])
+ useEffect(() => { savePageState({ priceFilter }) }, [priceFilter])
+
+ // 스크롤 위치 — 마운트 시 복원, 언마운트 시 저장
+ useEffect(() => {
+   const savedScroll = loadPageState().scrollY
+   if (typeof savedScroll === 'number') {
+     // 데이터 로드 후 스크롤 복원 — 약간 지연 (DOM 렌더링 후)
+     const t = setTimeout(() => window.scrollTo(0, savedScroll), 50)
+     return () => clearTimeout(t)
+   }
+ }, [loading])
+
+ useEffect(() => {
+   function onScroll() { savePageState({ scrollY: window.scrollY }) }
+   window.addEventListener('scroll', onScroll, { passive: true })
+   return () => window.removeEventListener('scroll', onScroll)
+ }, [])
 
  // 일괄 선택
  const [selected, setSelected] = useState<Set<string>>(new Set())
