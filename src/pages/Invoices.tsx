@@ -567,15 +567,18 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  setForm(editing)
  loadExisting(editing)
  } else {
+ // 신규 생성 시 — 첫 거래처의 기본 부가세 모드 자동 적용
+ const defaultVendor = vendors[0]
  setForm({
  issue_date: todayKR(),
- vendor_id: vendors[0]?.id,
+ vendor_id: defaultVendor?.id,
  supplier_business_number: '216-21-18212',
  supplier_name: '써치(SEARCH)',
  supplier_ceo: '함기호',
  supplier_address: '서울시 동대문구 안암로 16길 4, 2층',
  bank_info: '함기호(써치) 국민은행 038737-04-002188',
- })
+ vat_mode: ((defaultVendor as any)?.default_vat_mode as any) || 'exclusive',
+ } as any)
  setLines([])
  setOriginalIds(new Set())
  if (vendors[0]) {
@@ -798,7 +801,9 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  }
 
  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity || 0) * Number(l.unit_price || 0)), 0)
- const vat = Math.round(subtotal * 0.1)
+ // 부가세 모드: 'exclusive' 별도 10% / 'none' 없음
+ const vatMode: 'exclusive' | 'none' = ((form as any).vat_mode || 'exclusive') as any
+ const vat = vatMode === 'none' ? 0 : Math.round(subtotal * 0.1)
  const total = subtotal + vat
 
  /* ───── 저장 (명시적 클릭만 DB 반영) ───── */
@@ -816,6 +821,7 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  supplier_address: form.supplier_address || '',
  bank_info: form.bank_info || '',
  subtotal, vat, total,
+ vat_mode: vatMode,
  // 견적서 연결 + 선납액 + 입금 상태
  quotation_id: form.quotation_id || null,
  deposit_amount: Number(form.deposit_amount || 0),
@@ -1047,12 +1053,30 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  </table>
  </div>
 
- <div className="mt-3 bg-zinc-50 rounded-xl p-4 space-y-1.5 text-[13px]">
- <div className="flex justify-between"><span className="text-zinc-500">공급가액</span><span className="tabular-nums">₩{subtotal.toLocaleString()}</span></div>
- <div className="flex justify-between"><span className="text-zinc-500">부가세 (10%)</span><span className="tabular-nums">₩{vat.toLocaleString()}</span></div>
- <div className="flex justify-between pt-1.5 border-t border-zinc-200 font-bold text-[15px]">
- <span>총 합계</span><span className="tabular-nums">₩{total.toLocaleString()}</span>
- </div>
+ <div className="mt-3 bg-zinc-50 rounded-xl p-4 space-y-2 text-[13px]">
+   {/* 부가세 모드 선택 */}
+   <div className="flex items-center justify-between pb-2 border-b border-zinc-200">
+     <span className="text-[11px] font-semibold text-zinc-600 uppercase">부가세 처리</span>
+     <div className="flex gap-1">
+       <button
+         type="button"
+         onClick={() => { setForm(f => ({ ...f, vat_mode: 'exclusive' } as any)); setDirty(true) }}
+         className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${vatMode === 'exclusive' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-700 border border-zinc-300 hover:bg-zinc-50'}`}
+       >별도 10%</button>
+       <button
+         type="button"
+         onClick={() => { setForm(f => ({ ...f, vat_mode: 'none' } as any)); setDirty(true) }}
+         className={`px-3 py-1 rounded-md text-[11px] font-medium transition-colors ${vatMode === 'none' ? 'bg-blue-600 text-white' : 'bg-white text-zinc-700 border border-zinc-300 hover:bg-zinc-50'}`}
+       >부가세 없음</button>
+     </div>
+   </div>
+   <div className="flex justify-between"><span className="text-zinc-500">공급가액</span><span className="tabular-nums">₩{subtotal.toLocaleString()}</span></div>
+   {vatMode === 'exclusive' && (
+     <div className="flex justify-between"><span className="text-zinc-500">부가세 (10%)</span><span className="tabular-nums">₩{vat.toLocaleString()}</span></div>
+   )}
+   <div className="flex justify-between pt-1.5 border-t border-zinc-200 font-bold text-[15px]">
+     <span>총 합계</span><span className="tabular-nums">₩{total.toLocaleString()}</span>
+   </div>
  </div>
 
  {/* 출처 링크 — 이 계산서가 어디서 발행됐는지 */}

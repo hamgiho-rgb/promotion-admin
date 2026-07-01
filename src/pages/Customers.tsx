@@ -788,6 +788,7 @@ function CustomerDrawer({ open, onClose, editing, onSaved }: {
       company_name: form.company_name?.trim() || null,
       memo: finalMemo || null,
       size_system: sizes,
+      default_vat_mode: (form as any).default_vat_mode || 'exclusive',
     }
     const result = editing
       ? await supabase.from('vendors').update(payload).eq('id', editing.id)
@@ -830,6 +831,35 @@ function CustomerDrawer({ open, onClose, editing, onSaved }: {
           <div><Label>이메일</Label><Input value={form.email || ''} onChange={e => update('email', e.target.value)} /></div>
         </div>
         <div><Label>계좌정보</Label><Input value={form.bank_info || ''} onChange={e => update('bank_info', e.target.value)} /></div>
+        <div>
+          <Label>부가세 처리 <span className="text-zinc-400 font-normal">(계산서 발행 시 기본값)</span></Label>
+          <div className="flex gap-2 mt-1">
+            <label className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer transition-colors ${((form as any).default_vat_mode || 'exclusive') === 'exclusive' ? 'border-blue-500 bg-blue-50' : 'border-zinc-300 hover:bg-zinc-50'}`}>
+              <input
+                type="radio"
+                name="vat_mode"
+                checked={((form as any).default_vat_mode || 'exclusive') === 'exclusive'}
+                onChange={() => update('default_vat_mode' as any, 'exclusive' as any)}
+              />
+              <div>
+                <div className="text-[13px] font-medium">부가세 별도 <span className="text-zinc-500 text-[11px]">(10%)</span></div>
+                <div className="text-[10px] text-zinc-500">공급가액 + 부가세 = 합계</div>
+              </div>
+            </label>
+            <label className={`flex-1 flex items-center gap-2 px-3 py-2 rounded-md border cursor-pointer transition-colors ${(form as any).default_vat_mode === 'none' ? 'border-blue-500 bg-blue-50' : 'border-zinc-300 hover:bg-zinc-50'}`}>
+              <input
+                type="radio"
+                name="vat_mode"
+                checked={(form as any).default_vat_mode === 'none'}
+                onChange={() => update('default_vat_mode' as any, 'none' as any)}
+              />
+              <div>
+                <div className="text-[13px] font-medium">부가세 없음</div>
+                <div className="text-[10px] text-zinc-500">공급가액 = 합계</div>
+              </div>
+            </label>
+          </div>
+        </div>
         <div className="pt-2 border-t border-zinc-100">
           <Label>사이즈 체계</Label>
           <p className="text-[11px] text-zinc-500 mb-2.5">이 거래처가 사용하는 사이즈를 선택해주세요.</p>

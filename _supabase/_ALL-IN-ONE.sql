@@ -259,6 +259,14 @@ alter table payments enable row level security;
 drop policy if exists "anon_all_payments" on payments;
 create policy "anon_all_payments" on payments for all using (true) with check (true);
 
+-- ────────────────────────────────────────
+-- 13. 부가세 모드 (VAT mode)
+--     - 거래처: default_vat_mode ('exclusive' = 부가세 별도 10% / 'none' = 부가세 없음)
+--     - 계산서: vat_mode (거래처 기본값 override)
+-- ────────────────────────────────────────
+alter table vendors  add column if not exists default_vat_mode text default 'exclusive';
+alter table invoices add column if not exists vat_mode text default 'exclusive';
+
 -- ════════════════════════════════════════════════════════════════════
 -- 끝! 다 한 번에 실행됨. 다시 실행해도 안전 (멱등).
 -- ════════════════════════════════════════════════════════════════════

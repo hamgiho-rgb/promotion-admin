@@ -99,11 +99,21 @@ export default function InvoiceStatement() {
   const vendorIds = Array.from(new Set(invoices.map(i => i.vendor_id)))
   const sameVendor = vendorIds.length === 1
 
+  const totalSubtotal = invoices.reduce((s, i) => s + Number((i as any).subtotal || 0), 0)   // 공급가액 합
+  const totalVat = invoices.reduce((s, i) => s + Number((i as any).vat || 0), 0)              // 부가세 합
   const totalBilled = invoices.reduce((s, i) => s + Number(i.total || 0), 0)
   const totalDeposit = invoices.reduce((s, i) => s + Number(i.deposit_amount || 0), 0)
   const totalReceived = invoices.reduce((s, i) => s + Number((i as any).received_amount || 0), 0)
   const totalPayments = payments.reduce((s, p) => s + Number(p.amount || 0), 0)
-  const outstanding = totalBilled - totalDeposit - totalReceived - totalPayments
+  const totalPaid = totalDeposit + totalReceived + totalPayments  // 실제 받은 금액 (부가세 포함)
+  const outstanding = totalBilled - totalPaid                     // 합계 기준 잔금
+
+  // 공급가액 기준 잔금 (입금액은 부가세 포함 → 공급가액 몫만 차감)
+  const totalBilledRatio = totalBilled > 0 ? totalSubtotal / totalBilled : 1
+  const paidSupplyPortion = totalPaid * totalBilledRatio          // 받은 돈 중 공급가액 몫
+  const outstandingSupply = totalSubtotal - paidSupplyPortion     // 공급가액 기준 잔금
+  const paidVatPortion = totalPaid - paidSupplyPortion            // 받은 돈 중 부가세 몫
+  const outstandingVat = totalVat - paidVatPortion                // 부가세 기준 잔금
 
   function balance(inv: Invoice) {
     // 이 계산서에 직접 연결된 입금만 차감 (일반 입금은 거래처 전체 잔금에만)
@@ -194,27 +204,42 @@ export default function InvoiceStatement() {
             </tbody>
           </table>
 
-          {/* 계산서별 정산표 (읽기 전용 요약) */}
+          {/* 계산서별 정산표 (읽기 전용 요약) — 공급가액/부가세/합계 구분 */}
           <table className="w-full border border-zinc-300 text-[12px] mb-6">
             <thead>
               <tr className="bg-zinc-100 border-b border-zinc-300 text-[11px]">
                 <th className="px-3 py-2 text-left border-r border-zinc-200 w-24">발행일</th>
-                <th className="px-3 py-2 text-left border-r border-zinc-200">계산서 메모/기간</th>
-                <th className="px-3 py-2 text-right border-r border-zinc-200 w-32">청구 금액</th>
-                <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">계약금</th>
-                <th className="px-3 py-2 text-right w-32">잔금</th>
+                <th className="px-3 py-2 text-left border-r border-zinc-200">메모/기간</th>
+                <th className="px-3 py-2 text-center border-r border-zinc-200 w-14">부가세</th>
+                <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">공급가액</th>
+                <th className="px-3 py-2 text-right border-r border-zinc-200 w-24">부가세</th>
+                <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">합계</th>
+                <th className="px-3 py-2 text-right border-r border-zinc-200 w-24">계약금</th>
+                <th className="px-3 py-2 text-right w-28">잔금</th>
               </tr>
             </thead>
             <tbody>
               {invoices.map(inv => {
                 const bal = balance(inv)
+                const sub = Number((inv as any).subtotal || 0)
+                const vt = Number((inv as any).vat || 0)
+                const mode = ((inv as any).vat_mode as string) || (vt > 0 ? 'exclusive' : 'none')
                 return (
                   <tr key={inv.id} className="border-b border-zinc-100">
                     <td className="px-3 py-2 border-r border-zinc-200 tabular-nums">{inv.issue_date}</td>
                     <td className="px-3 py-2 border-r border-zinc-200 text-[11px]">
                       {(inv.notes || '').replace(/^\[[^\]]+\]\s*/, '').slice(0, 80) || '—'}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200">₩{Number(inv.total || 0).toLocaleString()}</td>
+                    <td className="px-3 py-2 border-r border-zinc-200 text-center text-[10px]">
+                      <span className={`inline-block px-1.5 py-0.5 rounded ${mode === 'none' ? 'bg-zinc-100 text-zinc-600' : 'bg-blue-50 text-blue-700'}`}>
+                        {mode === 'none' ? '없음' : '별도'}
+                      </span>
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200 text-zinc-700">₩{sub.toLocaleString()}</td>
+                    <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200 text-zinc-500">
+                      {vt > 0 ? `₩${vt.toLocaleString()}` : '—'}
+                    </td>
+                    <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200 font-medium">₩{Number(inv.total || 0).toLocaleString()}</td>
                     <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200 text-zinc-600">
                       {Number(inv.deposit_amount || 0) > 0 ? `₩${Number(inv.deposit_amount).toLocaleString()}` : '—'}
                     </td>
@@ -227,7 +252,9 @@ export default function InvoiceStatement() {
             </tbody>
             <tfoot>
               <tr className="bg-zinc-100 border-t-2 border-zinc-300 font-semibold">
-                <td colSpan={2} className="px-3 py-2.5 text-right">합 계</td>
+                <td colSpan={3} className="px-3 py-2.5 text-right">합 계</td>
+                <td className="px-3 py-2.5 text-right tabular-nums">₩{totalSubtotal.toLocaleString()}</td>
+                <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600">₩{totalVat.toLocaleString()}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">₩{totalBilled.toLocaleString()}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600">₩{totalDeposit.toLocaleString()}</td>
                 <td className={`px-3 py-2.5 text-right tabular-nums text-[14px] ${outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
@@ -383,8 +410,35 @@ export default function InvoiceStatement() {
               <p className={`text-[22px] font-bold tabular-nums mt-1 ${outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                 ₩{outstanding.toLocaleString()}
               </p>
+              <p className="text-[10px] text-zinc-500 mt-0.5">합계 기준 (부가세 포함)</p>
             </div>
           </div>
+
+          {/* 공급가액 기준 잔금 (부가세 분리 표시) */}
+          {totalVat > 0 && (
+            <div className="mt-3 border border-zinc-200 rounded p-4 bg-zinc-50">
+              <p className="text-[11px] font-semibold uppercase tracking-wider text-zinc-600 mb-2">📊 공급가액 · 부가세 별도 표기</p>
+              <div className="grid grid-cols-2 gap-4 text-[13px]">
+                <div>
+                  <div className="flex justify-between mb-1"><span className="text-zinc-500">공급가액 청구</span><span className="tabular-nums">₩{totalSubtotal.toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-1"><span className="text-zinc-500">공급가액 수령분</span><span className="tabular-nums text-emerald-600">−₩{Math.round(paidSupplyPortion).toLocaleString()}</span></div>
+                  <div className="flex justify-between pt-1.5 border-t border-zinc-200 font-semibold">
+                    <span>공급가액 잔금</span>
+                    <span className={`tabular-nums ${outstandingSupply > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>₩{Math.round(outstandingSupply).toLocaleString()}</span>
+                  </div>
+                </div>
+                <div>
+                  <div className="flex justify-between mb-1"><span className="text-zinc-500">부가세 청구</span><span className="tabular-nums">₩{totalVat.toLocaleString()}</span></div>
+                  <div className="flex justify-between mb-1"><span className="text-zinc-500">부가세 수령분</span><span className="tabular-nums text-emerald-600">−₩{Math.round(paidVatPortion).toLocaleString()}</span></div>
+                  <div className="flex justify-between pt-1.5 border-t border-zinc-200 font-semibold">
+                    <span>부가세 잔금</span>
+                    <span className={`tabular-nums ${outstandingVat > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>₩{Math.round(outstandingVat).toLocaleString()}</span>
+                  </div>
+                </div>
+              </div>
+              <p className="text-[10px] text-zinc-500 mt-2">💡 입금액을 합계(부가세 포함) 기준으로 받았을 때, 그중 공급가액 몫 / 부가세 몫을 비율로 계산해서 표시</p>
+            </div>
+          )}
 
           {vendor?.bank_info && (
             <p className="text-[11px] text-zinc-600 mt-6">
