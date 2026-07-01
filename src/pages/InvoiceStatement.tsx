@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
-import type { Invoice, Vendor } from '@/lib/types'
+import type { Invoice, Vendor, Payment } from '@/lib/types'
 import { exportSheet } from '@/lib/exportXlsx'
 
 /* ─────────────────────────────────────────────
@@ -20,8 +20,10 @@ export default function InvoiceStatement() {
 
   const [invoices, setInvoices] = useState<Invoice[]>([])
   const [vendor, setVendor] = useState<Vendor | null>(null)
+  const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [paymentModalOpen, setPaymentModalOpen] = useState(false)
 
   useEffect(() => { load() }, [idsParam])
 
@@ -33,10 +35,36 @@ export default function InvoiceStatement() {
     setInvoices((invs || []) as Invoice[])
     // 거래처 (첫 계산서 기준)
     if (invs && invs.length > 0) {
-      const { data: v } = await supabase.from('vendors').select('*').eq('id', invs[0].vendor_id).single()
+      const v_id = invs[0].vendor_id
+      const { data: v } = await supabase.from('vendors').select('*').eq('id', v_id).single()
       setVendor(v as Vendor)
+      // 그 거래처의 모든 입금 내역 (이 계산서들에 연결됐든 일반이든 다)
+      const { data: pays } = await supabase.from('payments')
+        .select('*').eq('vendor_id', v_id).is('deleted_at', null).order('paid_date', { ascending: false })
+      setPayments((pays || []) as Payment[])
     }
     setLoading(false)
+  }
+
+  async function addPayment(p: { paid_date: string; amount: number; memo: string; invoice_id: string | null }) {
+    if (!vendor) return
+    const { error } = await supabase.from('payments').insert({
+      vendor_id: vendor.id,
+      invoice_id: p.invoice_id,
+      paid_date: p.paid_date,
+      amount: p.amount,
+      memo: p.memo || null,
+    })
+    if (error) { alert('등록 실패: ' + error.message); return }
+    setPaymentModalOpen(false)
+    load()
+  }
+
+  async function deletePayment(id: string) {
+    if (!confirm('이 입금 내역을 삭제할까요?')) return
+    const { error } = await supabase.from('payments').update({ deleted_at: new Date().toISOString() }).eq('id', id)
+    if (error) { alert('삭제 실패: ' + error.message); return }
+    load()
   }
 
   async function updateReceived(invoiceId: string, value: number) {
@@ -61,10 +89,13 @@ export default function InvoiceStatement() {
   const totalBilled = invoices.reduce((s, i) => s + Number(i.total || 0), 0)
   const totalDeposit = invoices.reduce((s, i) => s + Number(i.deposit_amount || 0), 0)
   const totalReceived = invoices.reduce((s, i) => s + Number((i as any).received_amount || 0), 0)
-  const outstanding = totalBilled - totalDeposit - totalReceived
+  const totalPayments = payments.reduce((s, p) => s + Number(p.amount || 0), 0)
+  const outstanding = totalBilled - totalDeposit - totalReceived - totalPayments
 
   function balance(inv: Invoice) {
-    return Number(inv.total || 0) - Number(inv.deposit_amount || 0) - Number((inv as any).received_amount || 0)
+    // 이 계산서에 직접 연결된 입금만 차감 (일반 입금은 거래처 전체 잔금에만)
+    const directPayments = payments.filter(p => p.invoice_id === inv.id).reduce((s, p) => s + Number(p.amount || 0), 0)
+    return Number(inv.total || 0) - Number(inv.deposit_amount || 0) - Number((inv as any).received_amount || 0) - directPayments
   }
 
   function exportToExcel() {
@@ -210,6 +241,64 @@ export default function InvoiceStatement() {
             </tfoot>
           </table>
 
+          {/* 입금 내역 (payments) */}
+          <div className="mt-6">
+            <div className="flex items-center justify-between mb-2">
+              <h3 className="text-[14px] font-semibold text-zinc-800">💰 입금 내역</h3>
+              <button
+                onClick={() => setPaymentModalOpen(true)}
+                className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium print:hidden"
+              >＋ 입금 등록</button>
+            </div>
+            {payments.length === 0 ? (
+              <div className="border border-zinc-200 rounded p-4 text-center text-[12px] text-zinc-400">
+                입금 내역이 없습니다.
+                <span className="print:hidden"> 위 + 입금 등록 버튼으로 입력하세요.</span>
+              </div>
+            ) : (
+              <table className="w-full border border-zinc-300 text-[12px]">
+                <thead>
+                  <tr className="bg-zinc-100 border-b border-zinc-300 text-[11px]">
+                    <th className="px-3 py-2 text-left border-r border-zinc-200 w-28">입금일</th>
+                    <th className="px-3 py-2 text-left border-r border-zinc-200">메모</th>
+                    <th className="px-3 py-2 text-left border-r border-zinc-200">연결 계산서</th>
+                    <th className="px-3 py-2 text-right border-r border-zinc-200 w-32">금액</th>
+                    <th className="px-3 py-2 w-10 print:hidden"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {payments.map(p => {
+                    const inv = invoices.find(i => i.id === p.invoice_id)
+                    return (
+                      <tr key={p.id} className="border-b border-zinc-100">
+                        <td className="px-3 py-2 border-r border-zinc-200 tabular-nums">{p.paid_date}</td>
+                        <td className="px-3 py-2 border-r border-zinc-200">{p.memo || '—'}</td>
+                        <td className="px-3 py-2 border-r border-zinc-200 text-[11px] text-zinc-600">
+                          {inv ? `${inv.issue_date} 계산서` : <span className="text-zinc-400">일반 입금</span>}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-700 border-r border-zinc-200">
+                          ₩{Number(p.amount).toLocaleString()}
+                        </td>
+                        <td className="px-1 py-2 text-center print:hidden">
+                          <button onClick={() => deletePayment(p.id)} className="text-rose-500 hover:text-rose-700 text-[16px]" title="입금 내역 삭제">×</button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="bg-emerald-50 border-t border-zinc-300">
+                    <td colSpan={3} className="px-3 py-2.5 text-right font-semibold">입금 합계</td>
+                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-emerald-700">
+                      ₩{totalPayments.toLocaleString()}
+                    </td>
+                    <td className="print:hidden"></td>
+                  </tr>
+                </tfoot>
+              </table>
+            )}
+          </div>
+
           {/* 큰 요약 박스 */}
           <div className="grid grid-cols-3 gap-3 mt-6">
             <div className="border border-zinc-300 rounded p-4">
@@ -218,8 +307,12 @@ export default function InvoiceStatement() {
             </div>
             <div className="border border-zinc-300 rounded p-4">
               <p className="text-[11px] text-zinc-500 uppercase tracking-wider">받은 금액</p>
-              <p className="text-[20px] font-bold tabular-nums mt-1 text-zinc-700">₩{(totalDeposit + totalReceived).toLocaleString()}</p>
-              {totalDeposit > 0 && <p className="text-[10px] text-zinc-400 mt-1">계약금 ₩{totalDeposit.toLocaleString()} + 수금 ₩{totalReceived.toLocaleString()}</p>}
+              <p className="text-[20px] font-bold tabular-nums mt-1 text-zinc-700">₩{(totalDeposit + totalReceived + totalPayments).toLocaleString()}</p>
+              <div className="text-[10px] text-zinc-400 mt-1 space-y-0.5">
+                {totalDeposit > 0 && <div>계약금 ₩{totalDeposit.toLocaleString()}</div>}
+                {totalPayments > 0 && <div>입금 내역 ₩{totalPayments.toLocaleString()} ({payments.length}건)</div>}
+                {totalReceived > 0 && <div>기타 수금 ₩{totalReceived.toLocaleString()}</div>}
+              </div>
             </div>
             <div className={`border rounded p-4 ${outstanding > 0 ? 'border-rose-300 bg-rose-50' : 'border-emerald-300 bg-emerald-50'}`}>
               <p className={`text-[11px] uppercase tracking-wider ${outstanding > 0 ? 'text-rose-600' : 'text-emerald-600'}`}>
@@ -246,6 +339,114 @@ export default function InvoiceStatement() {
           body { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
         }
       `}</style>
+
+      {/* 입금 등록 모달 */}
+      {paymentModalOpen && (
+        <PaymentModal
+          invoices={invoices}
+          defaultAmount={outstanding > 0 ? outstanding : 0}
+          onClose={() => setPaymentModalOpen(false)}
+          onSubmit={addPayment}
+        />
+      )}
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 입금 등록 모달 — 날짜/금액/메모 + 특정 계산서 연결 선택
+ * ───────────────────────────────────────────── */
+function PaymentModal({ invoices, defaultAmount, onClose, onSubmit }: {
+  invoices: Invoice[]
+  defaultAmount: number
+  onClose: () => void
+  onSubmit: (p: { paid_date: string; amount: number; memo: string; invoice_id: string | null }) => void
+}) {
+  const today = new Date().toISOString().slice(0, 10)
+  const [paidDate, setPaidDate] = useState(today)
+  const [amount, setAmount] = useState<number | ''>(defaultAmount || '')
+  const [memo, setMemo] = useState('')
+  const [invoiceId, setInvoiceId] = useState<string>('')
+  const [submitting, setSubmitting] = useState(false)
+
+  function handleSubmit() {
+    const amt = Number(amount) || 0
+    if (amt <= 0) { alert('금액을 입력해주세요.'); return }
+    if (!paidDate) { alert('입금일을 선택해주세요.'); return }
+    setSubmitting(true)
+    onSubmit({
+      paid_date: paidDate,
+      amount: amt,
+      memo: memo.trim(),
+      invoice_id: invoiceId || null,
+    })
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-100">
+          <h2 className="text-[16px] font-semibold text-zinc-900">＋ 입금 등록</h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">받은 입금 내역을 등록합니다</p>
+        </div>
+        <div className="p-5 space-y-3">
+          <div>
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">입금일 *</label>
+            <input
+              type="date"
+              value={paidDate}
+              onChange={e => setPaidDate(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">금액 *</label>
+            <input
+              type="number"
+              value={amount}
+              onChange={e => setAmount(e.target.value === '' ? '' : Number(e.target.value))}
+              placeholder="0"
+              autoFocus
+              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[14px] text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            {defaultAmount > 0 && (
+              <p className="text-[10px] text-zinc-500 mt-1">💡 현재 잔금 ₩{defaultAmount.toLocaleString()} 자동 채워짐</p>
+            )}
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">연결 계산서 (선택)</label>
+            <select
+              value={invoiceId}
+              onChange={e => setInvoiceId(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] bg-white focus:outline-none focus:ring-2 focus:ring-blue-500"
+            >
+              <option value="">— 일반 입금 (특정 계산서 X) —</option>
+              {invoices.map(i => (
+                <option key={i.id} value={i.id}>
+                  {i.issue_date} · ₩{Number(i.total).toLocaleString()}{i.notes ? ` · ${i.notes.slice(0, 30)}` : ''}
+                </option>
+              ))}
+            </select>
+            <p className="text-[10px] text-zinc-500 mt-1">특정 계산서 잔금에서 차감하려면 선택. 비워두면 거래처 전체 잔금에서만 차감.</p>
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">메모</label>
+            <input
+              type="text"
+              value={memo}
+              onChange={e => setMemo(e.target.value)}
+              placeholder="예: 1차 입금, 계좌이체 등"
+              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+        <div className="px-5 py-3 border-t border-zinc-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-md border border-zinc-300 text-zinc-700 text-[13px] hover:bg-zinc-50">취소</button>
+          <button onClick={handleSubmit} disabled={submitting} className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-medium disabled:opacity-50">
+            {submitting ? '등록 중...' : '등록'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }

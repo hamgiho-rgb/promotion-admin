@@ -235,6 +235,30 @@ create unique index if not exists products_vendor_code_alive_uq
 -- ────────────────────────────────────────
 alter table invoices add column if not exists received_amount numeric default 0;
 
+-- ────────────────────────────────────────
+-- 12. 입금 내역 (payments)
+--     거래처별 입금 history. 날짜/금액/메모.
+--     특정 계산서에 연결 가능 (invoice_id), 일반 입금이면 비워둠.
+--     잔금 = 총 청구 - sum(payments.amount) - sum(invoices.deposit_amount)
+-- ────────────────────────────────────────
+create table if not exists payments (
+  id          uuid primary key default gen_random_uuid(),
+  vendor_id   uuid not null references vendors(id) on delete cascade,
+  invoice_id  uuid references invoices(id) on delete set null,   -- 선택: 특정 계산서 입금
+  paid_date   date not null,
+  amount      numeric not null,
+  memo        text,
+  created_at  timestamptz default now(),
+  deleted_at  timestamptz
+);
+create index if not exists idx_payments_vendor on payments(vendor_id) where deleted_at is null;
+create index if not exists idx_payments_invoice on payments(invoice_id) where deleted_at is null;
+create index if not exists idx_payments_date on payments(paid_date desc) where deleted_at is null;
+
+alter table payments enable row level security;
+drop policy if exists "anon_all_payments" on payments;
+create policy "anon_all_payments" on payments for all using (true) with check (true);
+
 -- ════════════════════════════════════════════════════════════════════
 -- 끝! 다 한 번에 실행됨. 다시 실행해도 안전 (멱등).
 -- ════════════════════════════════════════════════════════════════════

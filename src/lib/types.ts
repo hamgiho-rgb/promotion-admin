@@ -5,6 +5,17 @@
 
 export type VendorType = 'supplier' | 'customer'
 
+export interface Payment {
+  id: string
+  vendor_id: string
+  invoice_id: string | null
+  paid_date: string
+  amount: number
+  memo: string | null
+  created_at: string
+  deleted_at?: string | null
+}
+
 export interface Vendor {
   id: string
   name: string                       // 브랜드명 (예: 마크니)
