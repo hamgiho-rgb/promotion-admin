@@ -23,6 +23,7 @@ export default function InvoiceStatement() {
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
+  const [editingPayment, setEditingPayment] = useState<Payment | null>(null)
 
   useEffect(() => { load() }, [idsParam])
 
@@ -45,18 +46,38 @@ export default function InvoiceStatement() {
     setLoading(false)
   }
 
-  async function addPayment(p: { paid_date: string; amount: number; memo: string; invoice_id: string | null }) {
+  async function savePayment(p: { paid_date: string; amount: number; memo: string; invoice_id: string | null }) {
     if (!vendor) return
-    const { error } = await supabase.from('payments').insert({
-      vendor_id: vendor.id,
-      invoice_id: p.invoice_id,
-      paid_date: p.paid_date,
-      amount: p.amount,
-      memo: p.memo || null,
-    })
-    if (error) { alert('등록 실패: ' + error.message); return }
+    if (editingPayment) {
+      // 수정
+      const { error } = await supabase.from('payments').update({
+        paid_date: p.paid_date,
+        amount: p.amount,
+        memo: p.memo || null,
+        invoice_id: p.invoice_id,
+      }).eq('id', editingPayment.id)
+      if (error) { alert('수정 실패: ' + error.message); return }
+    } else {
+      // 신규 등록
+      const { error } = await supabase.from('payments').insert({
+        vendor_id: vendor.id,
+        invoice_id: p.invoice_id,
+        paid_date: p.paid_date,
+        amount: p.amount,
+        memo: p.memo || null,
+      })
+      if (error) { alert('등록 실패: ' + error.message); return }
+    }
     setPaymentModalOpen(false)
+    setEditingPayment(null)
     load()
+  }
+
+  function openEditPayment(id: string) {
+    const p = payments.find(x => x.id === id)
+    if (!p) return
+    setEditingPayment(p)
+    setPaymentModalOpen(true)
   }
 
   async function deletePayment(id: string) {
@@ -307,7 +328,18 @@ export default function InvoiceStatement() {
                         </td>
                         <td className="px-1 py-2 text-center print:hidden">
                           {e.kind === 'payment' && !e.id.startsWith('dep-') && (
-                            <button onClick={() => deletePayment(e.id)} className="text-rose-500 hover:text-rose-700 text-[16px]" title="입금 내역 삭제">×</button>
+                            <div className="flex items-center justify-center gap-1">
+                              <button
+                                onClick={() => openEditPayment(e.id)}
+                                className="text-blue-500 hover:text-blue-700 text-[13px] px-1"
+                                title="입금 내역 수정"
+                              >✎</button>
+                              <button
+                                onClick={() => deletePayment(e.id)}
+                                className="text-rose-500 hover:text-rose-700 text-[16px] px-1"
+                                title="입금 내역 삭제"
+                              >×</button>
+                            </div>
                           )}
                         </td>
                       </tr>
@@ -370,13 +402,14 @@ export default function InvoiceStatement() {
         }
       `}</style>
 
-      {/* 입금 등록 모달 */}
+      {/* 입금 등록/수정 모달 */}
       {paymentModalOpen && (
         <PaymentModal
           invoices={invoices}
           outstanding={outstanding > 0 ? outstanding : 0}
-          onClose={() => setPaymentModalOpen(false)}
-          onSubmit={addPayment}
+          initial={editingPayment}
+          onClose={() => { setPaymentModalOpen(false); setEditingPayment(null) }}
+          onSubmit={savePayment}
         />
       )}
     </div>
@@ -386,17 +419,20 @@ export default function InvoiceStatement() {
 /* ─────────────────────────────────────────────
  * 입금 등록 모달 — 날짜/금액/메모 + 특정 계산서 연결 선택
  * ───────────────────────────────────────────── */
-function PaymentModal({ invoices, outstanding, onClose, onSubmit }: {
+function PaymentModal({ invoices, outstanding, initial, onClose, onSubmit }: {
   invoices: Invoice[]
   outstanding: number
+  initial?: Payment | null
   onClose: () => void
   onSubmit: (p: { paid_date: string; amount: number; memo: string; invoice_id: string | null }) => void
 }) {
+  const isEdit = !!initial
   const today = new Date().toISOString().slice(0, 10)
-  const [paidDate, setPaidDate] = useState(today)
-  const [amount, setAmount] = useState<number | ''>('')   // 항상 빈칸으로 시작
-  const [memo, setMemo] = useState('')
-  const [invoiceId, setInvoiceId] = useState<string>('')
+  const [paidDate, setPaidDate] = useState(initial?.paid_date || today)
+  // 수정 모드면 기존 값, 신규면 빈칸
+  const [amount, setAmount] = useState<number | ''>(initial ? Number(initial.amount) : '')
+  const [memo, setMemo] = useState(initial?.memo || '')
+  const [invoiceId, setInvoiceId] = useState<string>(initial?.invoice_id || '')
   const [submitting, setSubmitting] = useState(false)
 
   function handleSubmit() {
@@ -416,8 +452,8 @@ function PaymentModal({ invoices, outstanding, onClose, onSubmit }: {
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-zinc-100">
-          <h2 className="text-[16px] font-semibold text-zinc-900">＋ 입금 등록</h2>
-          <p className="text-[12px] text-zinc-500 mt-0.5">받은 입금 내역을 등록합니다</p>
+          <h2 className="text-[16px] font-semibold text-zinc-900">{isEdit ? '✎ 입금 내역 수정' : '＋ 입금 등록'}</h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">{isEdit ? '입금 내역을 수정합니다' : '받은 입금 내역을 등록합니다'}</p>
         </div>
         <div className="p-5 space-y-3">
           <div>
@@ -480,7 +516,7 @@ function PaymentModal({ invoices, outstanding, onClose, onSubmit }: {
         <div className="px-5 py-3 border-t border-zinc-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-md border border-zinc-300 text-zinc-700 text-[13px] hover:bg-zinc-50">취소</button>
           <button onClick={handleSubmit} disabled={submitting} className="px-4 py-2 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[13px] font-medium disabled:opacity-50">
-            {submitting ? '등록 중...' : '등록'}
+            {submitting ? '저장 중...' : (isEdit ? '수정 저장' : '등록')}
           </button>
         </div>
       </div>
