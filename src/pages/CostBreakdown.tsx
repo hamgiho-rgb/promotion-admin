@@ -111,7 +111,7 @@ export default function CostBreakdown() {
     setItems(data ?? [])
   }
 
-  const [searchParams] = useSearchParams()
+  const [searchParams, setSearchParams] = useSearchParams()
   const requestedProductId = searchParams.get('product')
 
   useEffect(() => { loadAll() }, [])
@@ -121,6 +121,7 @@ export default function CostBreakdown() {
     if (requestedProductId && products.find(p => p.id === requestedProductId)) {
       setSelectedId(requestedProductId)
     } else if (!selectedId) {
+      // 처음 진입 시 URL 없으면 첫 상품 자동 선택 (URL은 그대로 두기 — 뒤로가기 정상 동작)
       setSelectedId(products[0].id)
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -129,6 +130,13 @@ export default function CostBreakdown() {
     if (selectedId) loadItems(selectedId)
     else setItems([])
   }, [selectedId])
+
+  /** 좌측 상품 리스트에서 상품 클릭 시 — URL 도 갱신해서 뒤로가기 히스토리 남김 */
+  function selectProduct(id: string) {
+    setSelectedId(id)
+    // URL 갱신 (history entry 생성) — 뒤로가기 하면 이전 상품/이전 페이지로 이동
+    setSearchParams({ product: id })
+  }
 
   const selectedProduct = products.find(p => p.id === selectedId) || null
   const productionCost = items.reduce((sum, i) => sum + Number(i.subtotal || 0), 0)
@@ -483,7 +491,7 @@ export default function CostBreakdown() {
                                     </label>
                                   )}
                                   <button
-                                    onClick={() => setSelectedId(p.id)}
+                                    onClick={() => selectProduct(p.id)}
                                     className="flex-1 text-left px-3 py-2.5 min-w-0"
                                   >
                                     <div className={`text-[10px] font-mono truncate ${selectedId === p.id ? 'text-blue-300' : 'text-zinc-400'}`}>
@@ -807,7 +815,7 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
                 {list.slice(0, 30).map(p => (
                   <button
                     key={p.id}
-                    onClick={() => setSelectedId(p.id)}
+                    onClick={() => selectProduct(p.id)}
                     className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
                       selectedId === p.id
                         ? 'bg-emerald-50 border-emerald-300'

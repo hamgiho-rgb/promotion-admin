@@ -22,7 +22,6 @@ export default function InvoiceStatement() {
   const [vendor, setVendor] = useState<Vendor | null>(null)
   const [payments, setPayments] = useState<Payment[]>([])
   const [loading, setLoading] = useState(true)
-  const [savingId, setSavingId] = useState<string | null>(null)
   const [paymentModalOpen, setPaymentModalOpen] = useState(false)
 
   useEffect(() => { load() }, [idsParam])
@@ -67,13 +66,6 @@ export default function InvoiceStatement() {
     load()
   }
 
-  async function updateReceived(invoiceId: string, value: number) {
-    setSavingId(invoiceId)
-    const { error } = await supabase.from('invoices').update({ received_amount: value }).eq('id', invoiceId)
-    setSavingId(null)
-    if (error) { alert('수정 실패: ' + error.message); return }
-    setInvoices(prev => prev.map(i => i.id === invoiceId ? { ...i, received_amount: value } : i))
-  }
 
   if (loading) return <div className="p-10 text-center text-zinc-400">불러오는 중...</div>
   if (invoices.length === 0) return (
@@ -181,16 +173,15 @@ export default function InvoiceStatement() {
             </tbody>
           </table>
 
-          {/* 계산서별 정산표 */}
+          {/* 계산서별 정산표 (읽기 전용 요약) */}
           <table className="w-full border border-zinc-300 text-[12px] mb-6">
             <thead>
               <tr className="bg-zinc-100 border-b border-zinc-300 text-[11px]">
                 <th className="px-3 py-2 text-left border-r border-zinc-200 w-24">발행일</th>
                 <th className="px-3 py-2 text-left border-r border-zinc-200">계산서 메모/기간</th>
-                <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">청구 금액</th>
-                <th className="px-3 py-2 text-right border-r border-zinc-200 w-24">계약금</th>
-                <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">수금액</th>
-                <th className="px-3 py-2 text-right w-28">잔금</th>
+                <th className="px-3 py-2 text-right border-r border-zinc-200 w-32">청구 금액</th>
+                <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">계약금</th>
+                <th className="px-3 py-2 text-right w-32">잔금</th>
               </tr>
             </thead>
             <tbody>
@@ -206,21 +197,6 @@ export default function InvoiceStatement() {
                     <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200 text-zinc-600">
                       {Number(inv.deposit_amount || 0) > 0 ? `₩${Number(inv.deposit_amount).toLocaleString()}` : '—'}
                     </td>
-                    <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200">
-                      {/* 인쇄 시에는 값만 보이고, 화면에서는 input */}
-                      <span className="print:inline hidden">₩{Number((inv as any).received_amount || 0).toLocaleString()}</span>
-                      <input
-                        type="number"
-                        defaultValue={Number((inv as any).received_amount || 0) || ''}
-                        onBlur={e => {
-                          const val = Number(e.target.value) || 0
-                          if (val !== Number((inv as any).received_amount || 0)) updateReceived(inv.id, val)
-                        }}
-                        placeholder="0"
-                        disabled={savingId === inv.id}
-                        className="print:hidden w-full text-right border border-zinc-200 rounded px-2 py-1 focus:outline-none focus:ring-1 focus:ring-blue-500 tabular-nums"
-                      />
-                    </td>
                     <td className={`px-3 py-2 text-right tabular-nums font-semibold ${bal > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                       ₩{bal.toLocaleString()}
                     </td>
@@ -233,7 +209,6 @@ export default function InvoiceStatement() {
                 <td colSpan={2} className="px-3 py-2.5 text-right">합 계</td>
                 <td className="px-3 py-2.5 text-right tabular-nums">₩{totalBilled.toLocaleString()}</td>
                 <td className="px-3 py-2.5 text-right tabular-nums text-zinc-600">₩{totalDeposit.toLocaleString()}</td>
-                <td className="px-3 py-2.5 text-right tabular-nums">₩{totalReceived.toLocaleString()}</td>
                 <td className={`px-3 py-2.5 text-right tabular-nums text-[14px] ${outstanding > 0 ? 'text-rose-700' : 'text-emerald-700'}`}>
                   ₩{outstanding.toLocaleString()}
                 </td>
@@ -399,7 +374,7 @@ export default function InvoiceStatement() {
       {paymentModalOpen && (
         <PaymentModal
           invoices={invoices}
-          defaultAmount={outstanding > 0 ? outstanding : 0}
+          outstanding={outstanding > 0 ? outstanding : 0}
           onClose={() => setPaymentModalOpen(false)}
           onSubmit={addPayment}
         />
@@ -411,15 +386,15 @@ export default function InvoiceStatement() {
 /* ─────────────────────────────────────────────
  * 입금 등록 모달 — 날짜/금액/메모 + 특정 계산서 연결 선택
  * ───────────────────────────────────────────── */
-function PaymentModal({ invoices, defaultAmount, onClose, onSubmit }: {
+function PaymentModal({ invoices, outstanding, onClose, onSubmit }: {
   invoices: Invoice[]
-  defaultAmount: number
+  outstanding: number
   onClose: () => void
   onSubmit: (p: { paid_date: string; amount: number; memo: string; invoice_id: string | null }) => void
 }) {
   const today = new Date().toISOString().slice(0, 10)
   const [paidDate, setPaidDate] = useState(today)
-  const [amount, setAmount] = useState<number | ''>(defaultAmount || '')
+  const [amount, setAmount] = useState<number | ''>('')   // 항상 빈칸으로 시작
   const [memo, setMemo] = useState('')
   const [invoiceId, setInvoiceId] = useState<string>('')
   const [submitting, setSubmitting] = useState(false)
@@ -464,8 +439,15 @@ function PaymentModal({ invoices, defaultAmount, onClose, onSubmit }: {
               autoFocus
               className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[14px] text-right tabular-nums focus:outline-none focus:ring-2 focus:ring-blue-500"
             />
-            {defaultAmount > 0 && (
-              <p className="text-[10px] text-zinc-500 mt-1">💡 현재 잔금 ₩{defaultAmount.toLocaleString()} 자동 채워짐</p>
+            {outstanding > 0 && (
+              <p className="text-[10px] text-zinc-500 mt-1">
+                💡 현재 잔금: ₩{outstanding.toLocaleString()}
+                <button
+                  type="button"
+                  onClick={() => setAmount(outstanding)}
+                  className="ml-2 text-blue-600 hover:underline"
+                >전액 채우기</button>
+              </p>
             )}
           </div>
           <div>
