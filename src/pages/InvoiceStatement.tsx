@@ -241,62 +241,117 @@ export default function InvoiceStatement() {
             </tfoot>
           </table>
 
-          {/* 입금 내역 (payments) */}
+          {/* 거래처 원장 (통장처럼) — 날짜 | 청구/입금 | 잔금 */}
           <div className="mt-6">
             <div className="flex items-center justify-between mb-2">
-              <h3 className="text-[14px] font-semibold text-zinc-800">💰 입금 내역</h3>
+              <h3 className="text-[14px] font-semibold text-zinc-800">📒 거래처 원장 — 청구·입금 흐름</h3>
               <button
                 onClick={() => setPaymentModalOpen(true)}
                 className="px-3 py-1.5 rounded-md bg-blue-600 hover:bg-blue-700 text-white text-[12px] font-medium print:hidden"
               >＋ 입금 등록</button>
             </div>
-            {payments.length === 0 ? (
-              <div className="border border-zinc-200 rounded p-4 text-center text-[12px] text-zinc-400">
-                입금 내역이 없습니다.
-                <span className="print:hidden"> 위 + 입금 등록 버튼으로 입력하세요.</span>
-              </div>
-            ) : (
-              <table className="w-full border border-zinc-300 text-[12px]">
-                <thead>
-                  <tr className="bg-zinc-100 border-b border-zinc-300 text-[11px]">
-                    <th className="px-3 py-2 text-left border-r border-zinc-200 w-28">입금일</th>
-                    <th className="px-3 py-2 text-left border-r border-zinc-200">메모</th>
-                    <th className="px-3 py-2 text-left border-r border-zinc-200">연결 계산서</th>
-                    <th className="px-3 py-2 text-right border-r border-zinc-200 w-32">금액</th>
-                    <th className="px-3 py-2 w-10 print:hidden"></th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {payments.map(p => {
-                    const inv = invoices.find(i => i.id === p.invoice_id)
-                    return (
-                      <tr key={p.id} className="border-b border-zinc-100">
-                        <td className="px-3 py-2 border-r border-zinc-200 tabular-nums">{p.paid_date}</td>
-                        <td className="px-3 py-2 border-r border-zinc-200">{p.memo || '—'}</td>
-                        <td className="px-3 py-2 border-r border-zinc-200 text-[11px] text-zinc-600">
-                          {inv ? `${inv.issue_date} 계산서` : <span className="text-zinc-400">일반 입금</span>}
+            {(() => {
+              // 청구(계산서) + 입금(payments) 를 한 리스트로 시간순 정렬 + running balance 계산
+              type Event = { date: string; kind: 'invoice' | 'payment'; billed: number; received: number; memo: string; id: string; sort: number }
+              const events: Event[] = []
+              invoices.forEach(inv => events.push({
+                date: inv.issue_date || '',
+                kind: 'invoice',
+                billed: Number(inv.total || 0),
+                received: 0,
+                memo: `계산서 발행${inv.notes ? ' · ' + inv.notes.replace(/^\[[^\]]+\]\s*/, '').slice(0, 50) : ''}`,
+                id: inv.id,
+                sort: 0,   // 같은 날짜면 청구가 먼저
+              }))
+              // 견적서 계약금이 있으면 그것도 계산서와 함께 (같은 날에 −계약금)
+              invoices.forEach(inv => {
+                if (Number(inv.deposit_amount || 0) > 0) {
+                  events.push({
+                    date: inv.issue_date || '',
+                    kind: 'payment',
+                    billed: 0,
+                    received: Number(inv.deposit_amount),
+                    memo: '견적서 계약금 (선납)',
+                    id: `dep-${inv.id}`,
+                    sort: 1,
+                  })
+                }
+              })
+              payments.forEach(p => events.push({
+                date: p.paid_date,
+                kind: 'payment',
+                billed: 0,
+                received: Number(p.amount || 0),
+                memo: p.memo || '입금',
+                id: p.id,
+                sort: 1,
+              }))
+              events.sort((a, b) => a.date.localeCompare(b.date) || a.sort - b.sort)
+              let running = 0
+              const rows = events.map(e => {
+                running += e.billed - e.received
+                return { ...e, balance: running }
+              })
+              if (rows.length === 0) {
+                return (
+                  <div className="border border-zinc-200 rounded p-4 text-center text-[12px] text-zinc-400">
+                    원장 내역이 없습니다.
+                  </div>
+                )
+              }
+              return (
+                <table className="w-full border border-zinc-300 text-[12px]">
+                  <thead>
+                    <tr className="bg-zinc-100 border-b border-zinc-300 text-[11px]">
+                      <th className="px-3 py-2 text-left border-r border-zinc-200 w-28">날짜</th>
+                      <th className="px-3 py-2 text-left border-r border-zinc-200">내용</th>
+                      <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">청구 (+)</th>
+                      <th className="px-3 py-2 text-right border-r border-zinc-200 w-28">입금 (−)</th>
+                      <th className="px-3 py-2 text-right border-r border-zinc-200 w-32">잔금</th>
+                      <th className="px-3 py-2 w-10 print:hidden"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.map((e) => (
+                      <tr key={e.id} className={`border-b border-zinc-100 ${e.kind === 'payment' ? 'bg-emerald-50/40' : ''}`}>
+                        <td className="px-3 py-2 border-r border-zinc-200 tabular-nums">{e.date}</td>
+                        <td className="px-3 py-2 border-r border-zinc-200">
+                          <span className={`text-[10px] font-semibold uppercase mr-1.5 ${e.kind === 'invoice' ? 'text-rose-600' : 'text-emerald-600'}`}>
+                            {e.kind === 'invoice' ? '청구' : '입금'}
+                          </span>
+                          {e.memo}
                         </td>
-                        <td className="px-3 py-2 text-right tabular-nums font-semibold text-emerald-700 border-r border-zinc-200">
-                          ₩{Number(p.amount).toLocaleString()}
+                        <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200">
+                          {e.billed > 0 ? <span className="text-rose-700 font-medium">+₩{e.billed.toLocaleString()}</span> : ''}
+                        </td>
+                        <td className="px-3 py-2 text-right tabular-nums border-r border-zinc-200">
+                          {e.received > 0 ? <span className="text-emerald-700 font-medium">−₩{e.received.toLocaleString()}</span> : ''}
+                        </td>
+                        <td className={`px-3 py-2 text-right tabular-nums font-semibold border-r border-zinc-200 ${e.balance > 0 ? 'text-rose-700' : e.balance < 0 ? 'text-blue-700' : 'text-emerald-700'}`}>
+                          ₩{e.balance.toLocaleString()}
                         </td>
                         <td className="px-1 py-2 text-center print:hidden">
-                          <button onClick={() => deletePayment(p.id)} className="text-rose-500 hover:text-rose-700 text-[16px]" title="입금 내역 삭제">×</button>
+                          {e.kind === 'payment' && !e.id.startsWith('dep-') && (
+                            <button onClick={() => deletePayment(e.id)} className="text-rose-500 hover:text-rose-700 text-[16px]" title="입금 내역 삭제">×</button>
+                          )}
                         </td>
                       </tr>
-                    )
-                  })}
-                </tbody>
-                <tfoot>
-                  <tr className="bg-emerald-50 border-t border-zinc-300">
-                    <td colSpan={3} className="px-3 py-2.5 text-right font-semibold">입금 합계</td>
-                    <td className="px-3 py-2.5 text-right tabular-nums font-bold text-emerald-700">
-                      ₩{totalPayments.toLocaleString()}
-                    </td>
-                    <td className="print:hidden"></td>
-                  </tr>
-                </tfoot>
-              </table>
-            )}
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-zinc-900 text-white">
+                      <td colSpan={2} className="px-3 py-2.5 font-semibold">합 계</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-rose-300">+₩{totalBilled.toLocaleString()}</td>
+                      <td className="px-3 py-2.5 text-right tabular-nums text-emerald-300">−₩{(totalDeposit + totalPayments + totalReceived).toLocaleString()}</td>
+                      <td className={`px-3 py-2.5 text-right tabular-nums font-bold text-[14px] ${outstanding > 0 ? 'text-rose-300' : 'text-emerald-300'}`}>
+                        ₩{outstanding.toLocaleString()}
+                      </td>
+                      <td className="print:hidden"></td>
+                    </tr>
+                  </tfoot>
+                </table>
+              )
+            })()}
           </div>
 
           {/* 큰 요약 박스 */}
