@@ -53,6 +53,7 @@ const menu = [
     { to: '/quotations', label: '견적서',         icon: ICONS.quotation },
     { to: '/incoming',   label: '입고내역서',     icon: ICONS.incoming  },
     { to: '/invoices',   label: '계산서·영수증',  icon: ICONS.invoices  },
+    { to: '/receipts',   label: '입금 관리',      icon: ICONS.cost      },
   ]},
   { section: '분석', items: [
     { to: '/margin',            label: '마진내역서',    icon: ICONS.margin },

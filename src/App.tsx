@@ -14,6 +14,7 @@ import IncomingPrint from '@/pages/IncomingPrint'
 import InvoicesPage from '@/pages/Invoices'
 import InvoicePrint from '@/pages/InvoicePrint'
 import InvoiceStatement from '@/pages/InvoiceStatement'
+import Payments from '@/pages/Payments'
 import QuotationsPage from '@/pages/Quotations'
 import QuotationPrint from '@/pages/QuotationPrint'
 import MarginReport from '@/pages/MarginReport'
@@ -52,6 +53,7 @@ export default function App() {
             <Route path="quotations" element={<QuotationsPage />} />
             <Route path="incoming"   element={<IncomingPage />} />
             <Route path="invoices"   element={<InvoicesPage />} />
+            <Route path="receipts"   element={<Payments />} />
             <Route path="margin"     element={<MarginReport />} />
             <Route path="payments"   element={<SupplierPayments />} />
             <Route path="supplier-invoices" element={<SupplierInvoices />} />
