@@ -815,7 +815,7 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
                 {list.slice(0, 30).map(p => (
                   <button
                     key={p.id}
-                    onClick={() => selectProduct(p.id)}
+                    onClick={() => setSelectedId(p.id)}
                     className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
                       selectedId === p.id
                         ? 'bg-emerald-50 border-emerald-300'
