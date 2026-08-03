@@ -118,9 +118,19 @@ export default function InvoicesPage() {
 
    // (상품 × 컬러)별 머지
    const lineMap = new Map<string, any>()
+   const dateSetMerge = new Map<string, Set<string>>()   // 각 (상품×컬러)별 line_date 수집
    ;(allItems ?? []).forEach((it: any) => {
      const k = `${it.product_id || it.product_name || ''}__${it.color || ''}`
      const sizes = it.sizes || {}
+     // 원본 line_date 수집 (범위/단일 모두 처리)
+     if (it.line_date) {
+       if (!dateSetMerge.has(k)) dateSetMerge.set(k, new Set())
+       // 범위 문자열이면 "~"로 split, 아니면 그대로
+       String(it.line_date).split('~').forEach(d => {
+         const s = d.trim()
+         if (s) dateSetMerge.get(k)!.add(s)
+       })
+     }
      const existing = lineMap.get(k)
      if (existing) {
        Object.entries(sizes).forEach(([sz, n]) => {
@@ -136,7 +146,7 @@ export default function InvoicesPage() {
          if (num > 0) newSizes[sz] = num
        })
        lineMap.set(k, {
-         line_date: null,
+         line_date: null,   // 아래서 종합 세팅
          product_id: it.product_id || null,
          product_name: it.product_name || '',
          color: it.color || null,
@@ -147,6 +157,14 @@ export default function InvoicesPage() {
        })
      }
    })
+   // line_date 범위 세팅
+   for (const [k, ds] of dateSetMerge.entries()) {
+     const line = lineMap.get(k)
+     if (!line) continue
+     const sorted = Array.from(ds).sort()
+     if (sorted.length === 1) line.line_date = sorted[0]
+     else if (sorted.length > 1) line.line_date = `${sorted[0]}~${sorted[sorted.length - 1]}`
+   }
    const lines = Array.from(lineMap.values()).sort((a, b) =>
      (a.product_name || '').localeCompare(b.product_name || '') ||
      (a.color || '').localeCompare(b.color || '')
