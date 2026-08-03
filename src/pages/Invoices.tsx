@@ -793,30 +793,14 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
 
  function importAll() {
  if (importGroups.length === 0) return
- // ⚠ 이미 라인이 있으면 중복 경고 — 통합 계산서 위에 또 가져오면 두 배 됨
- if (lines.length > 0) {
-   if (!confirm(
-     `⚠ 이미 ${lines.length}개 라인이 있어요.\n\n` +
-     `그 위에 입고 ${importGroups.length}개 날짜를 더 가져오면 같은 상품이 중복될 수 있습니다.\n` +
-     `(통합 발행으로 만든 계산서에 또 가져오면 금액이 두 배가 됩니다)\n\n` +
-     `그래도 진행할까요?`
-   )) return
- } else {
-   if (!confirm(`총 ${importGroups.length}개 날짜의 입고 내역을 모두 가져올까요?`)) return
- }
- // 중복 검사: 상품ID + 날짜(있으면) 로 검사. 상품ID만으로도 이미 있으면 스킵.
- const existingByDate = new Set(lines.map(l => `${l.line_date || ''}|${l.product_id || ''}`))
- const existingProductIds = new Set(lines.map(l => l.product_id || '').filter(Boolean))
+ if (!confirm(`총 ${importGroups.length}개 날짜의 입고 내역을 모두 가져올까요?`)) return
+ const existing = new Set(lines.map(l => `${l.line_date}|${l.product_id || ''}`))
  const newOnes: LocalLine[] = []
- let dupSkipped = 0
  importGroups.forEach(g => {
  g.items.forEach(it => {
  const k = `${g.date}|${it.product_id || ''}`
- if (existingByDate.has(k)) return
- // 상품ID로도 이미 있으면 (통합 계산서 위에 겹칠 위험) — 스킵하고 카운트
- if (it.product_id && existingProductIds.has(it.product_id)) { dupSkipped++; return }
- existingByDate.add(k)
- if (it.product_id) existingProductIds.add(it.product_id)
+ if (existing.has(k)) return
+ existing.add(k)
  newOnes.push({
  tempId: newTempId(),
  line_date: g.date,
@@ -828,16 +812,10 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  })
  })
  })
- if (newOnes.length === 0) {
-   alert(dupSkipped > 0
-     ? `추가할 새 라인이 없어요.\n(같은 상품 ${dupSkipped}건은 이미 계산서에 있어서 스킵)`
-     : '새로 추가할 라인이 없어요.')
-   return
- }
+ if (newOnes.length === 0) { alert('새로 추가할 라인이 없어요.'); return }
  setLines(prev => [...prev, ...newOnes])
  setImportedDates(new Set(importGroups.map(g => g.date)))
  setDirty(true)
- if (dupSkipped > 0) alert(`✓ ${newOnes.length}건 추가, 중복 상품 ${dupSkipped}건 스킵`)
  }
 
  const subtotal = lines.reduce((s, l) => s + (Number(l.quantity || 0) * Number(l.unit_price || 0)), 0)
