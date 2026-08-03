@@ -184,8 +184,9 @@ export default function IncomingPage() {
      if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
    })
 
-   // (상품 × 컬러)별 합치기 + 사이즈 누적
+   // (상품 × 컬러)별 합치기 + 사이즈 누적 + 납품일 범위 수집
    const lineMap = new Map<string, any>()
+   const dateSetMany = new Map<string, Set<string>>()
    items.forEach((it: any) => {
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
      let prod = it.product_id ? byId.get(it.product_id) : null
@@ -196,6 +197,10 @@ export default function IncomingPage() {
      }
      const colorKey = prod?.color || ''
      const k = `${pKey}__${colorKey}`
+     if (it.delivery_date) {
+       if (!dateSetMany.has(k)) dateSetMany.set(k, new Set())
+       dateSetMany.get(k)!.add(String(it.delivery_date))
+     }
      const existing = lineMap.get(k)
      const sizes = it.sizes || {}
      if (existing) {
@@ -222,6 +227,14 @@ export default function IncomingPage() {
        })
      }
    })
+   // 납품일 범위 문자열 세팅
+   for (const [k, ds] of dateSetMany.entries()) {
+     const line = lineMap.get(k)
+     if (!line) continue
+     const sorted = Array.from(ds).sort()
+     if (sorted.length === 1) line.line_date = sorted[0]
+     else if (sorted.length > 1) line.line_date = `${sorted[0]}~${sorted[sorted.length - 1]}`
+   }
    const lines = Array.from(lineMap.values()).sort((a, b) =>
      (a.product_name || '').localeCompare(b.product_name || '') ||
      (a.color || '').localeCompare(b.color || '')
@@ -322,8 +335,9 @@ export default function IncomingPage() {
    }
 
    // ③ 라인 변환 — (상품 × 컬러) 별로 합치고 사이즈는 sizes JSON에 누적
-   //    날짜는 제거 (계산서는 입고일자 무시, 한 줄에 사이즈 분포)
+   //    납품일은 수집 → 여러 개면 최소~최대 범위로 표시
    const lineMap = new Map<string, any>()
+   const dateSet = new Map<string, Set<string>>()   // key → Set of delivery_date strings
    items.forEach((it: any) => {
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
      let prod = it.product_id ? byId.get(it.product_id) : null
@@ -334,10 +348,14 @@ export default function IncomingPage() {
      }
      const colorKey = prod?.color || ''
      const k = `${pKey}__${colorKey}`
+     // 납품일 수집
+     if (it.delivery_date) {
+       if (!dateSet.has(k)) dateSet.set(k, new Set())
+       dateSet.get(k)!.add(String(it.delivery_date))
+     }
 
      const existing = lineMap.get(k)
      if (existing) {
-       // 같은 (상품 × 컬러) — sizes에 누적
        const sizes = it.sizes || {}
        Object.entries(sizes).forEach(([sz, n]) => {
          const num = Number(n) || 0
@@ -345,7 +363,6 @@ export default function IncomingPage() {
        })
        existing.quantity += Number(it.total_quantity || 0)
      } else {
-       // 새 라인
        const newSizes: Record<string, number> = {}
        const sourceSizes = it.sizes || {}
        Object.entries(sourceSizes).forEach(([sz, n]) => {
@@ -353,7 +370,7 @@ export default function IncomingPage() {
          if (num > 0) newSizes[sz] = num
        })
        lineMap.set(k, {
-         line_date: null,
+         line_date: null,   // 아래서 dateSet 종합해서 채움
          product_id: prod?.id || it.product_id || null,
          product_name: prod?.name || it.product_name || it.product_code || '',
          color: prod?.color || null,
@@ -364,6 +381,18 @@ export default function IncomingPage() {
        })
      }
    })
+   // 납품일 범위 표기 문자열 만들기
+   function dateRangeString(dates: string[]): string {
+     if (dates.length === 0) return ''
+     const sorted = dates.slice().sort()
+     if (sorted.length === 1) return sorted[0]
+     const first = sorted[0], last = sorted[sorted.length - 1]
+     return first === last ? first : `${first}~${last}`
+   }
+   for (const [k, ds] of dateSet.entries()) {
+     const line = lineMap.get(k)
+     if (line) line.line_date = dateRangeString(Array.from(ds))
+   }
    const allLines = Array.from(lineMap.values()).sort((a, b) =>
      (a.product_name || '').localeCompare(b.product_name || '') ||
      (a.color || '').localeCompare(b.color || '')
