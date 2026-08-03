@@ -874,13 +874,16 @@ function SummaryCard({ label, value, hint, highlight = 'zinc' }: {
  * 신규 상품 등록 드로어 — 원가계산서에서 바로 상품 추가
  * 등록 후 콜백에 새 상품 id 전달 → 좌측 목록 새로고침 + 자동 선택
  * ───────────────────────────────────────────── */
-function NewProductDrawer({ open, onClose, customers, onCreated, onCustomersChanged }: {
+function NewProductDrawer({ open, onClose, customers, editing, onCreated, onCustomersChanged }: {
   open: boolean
   onClose: () => void
   customers: Vendor[]
+  /** 값이 있으면 수정 모드, 없으면 신규 등록 모드 */
+  editing?: Product | null
   onCreated: (newId: string) => void
   onCustomersChanged: () => void
 }) {
+  const isEdit = !!editing
   const [vendorId, setVendorId] = useState<string>('')
   const [code, setCode] = useState('')
   const [name, setName] = useState('')
@@ -891,13 +894,23 @@ function NewProductDrawer({ open, onClose, customers, onCreated, onCustomersChan
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  // 드로어 열릴 때 폼 리셋
+  // 드로어 열릴 때 폼 초기화 — 수정 모드면 기존 값
   useEffect(() => {
     if (!open) return
-    setVendorId(customers[0]?.id || '')
-    setCode(''); setName(''); setNameEn(''); setBrand(''); setColor(''); setSellingPrice('')
+    if (editing) {
+      setVendorId(editing.vendor_id || '')
+      setCode(editing.code || '')
+      setName(editing.name || '')
+      setNameEn(editing.name_en || '')
+      setBrand(editing.brand || '')
+      setColor(editing.color || '')
+      setSellingPrice(Number(editing.selling_price) || '')
+    } else {
+      setVendorId(customers[0]?.id || '')
+      setCode(''); setName(''); setNameEn(''); setBrand(''); setColor(''); setSellingPrice('')
+    }
     setError(null)
-  }, [open, customers])
+  }, [open, editing, customers])
 
   async function handleSave() {
     if (!vendorId) { setError('거래처를 선택해주세요.'); return }
@@ -915,9 +928,18 @@ function NewProductDrawer({ open, onClose, customers, onCreated, onCustomersChan
       selling_price: Number(sellingPrice) || 0,
     }
 
+    // 수정 모드
+    if (isEdit && editing) {
+      const { data, error: upErr } = await supabase.from('products').update(payload).eq('id', editing.id).select().single()
+      setSaving(false)
+      if (upErr) { setError(upErr.message); return }
+      if (data) onCreated(data.id)
+      return
+    }
+
+    // 신규 등록
     const { data, error: insErr } = await supabase.from('products').insert(payload).select().single()
     if (insErr) {
-      // 휴지통에 같은 품번 있나 확인 → 자동 복구
       const msg = insErr.message.toLowerCase()
       if (msg.includes('duplicate') || msg.includes('unique')) {
         const { data: trashed } = await supabase
@@ -929,13 +951,13 @@ function NewProductDrawer({ open, onClose, customers, onCreated, onCustomersChan
           .maybeSingle()
         if (trashed) {
           if (confirm(`품번 '${payload.code}' 가 휴지통에 있습니다. ('${trashed.name}')\n\n복구해서 입력한 정보로 업데이트할까요?`)) {
-            const { data: restored, error: upErr } = await supabase
+            const { data: restored, error: rErr } = await supabase
               .from('products')
               .update({ deleted_at: null, ...payload })
               .eq('id', trashed.id)
               .select().single()
             setSaving(false)
-            if (upErr) { setError(upErr.message); return }
+            if (rErr) { setError(rErr.message); return }
             if (restored) onCreated(restored.id)
             return
           }
@@ -954,12 +976,12 @@ function NewProductDrawer({ open, onClose, customers, onCreated, onCustomersChan
     <Drawer
       open={open}
       onClose={onClose}
-      title="＋ 새 상품 등록"
+      title={isEdit ? '✎ 상품 정보 수정' : '＋ 새 상품 등록'}
       footer={
         <>
           <Button variant="secondary" onClick={onClose}>취소</Button>
           <Button onClick={handleSave} disabled={saving}>
-            {saving ? '저장 중...' : '저장하고 원가 입력 시작'}
+            {saving ? '저장 중...' : (isEdit ? '수정 저장' : '저장하고 원가 입력 시작')}
           </Button>
         </>
       }
@@ -967,7 +989,9 @@ function NewProductDrawer({ open, onClose, customers, onCreated, onCustomersChan
       {error && <div className="mb-4 p-3 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[12px]">{error}</div>}
 
       <div className="mb-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-[12px] text-blue-900">
-        💡 상품 등록 후 자동으로 좌측 목록에 추가되고, 이 상품의 원가 입력 화면으로 이동합니다.
+        {isEdit
+          ? '💡 상품 정보를 수정합니다. 품번은 변경 가능하지만 신중히 — 다른 곳(계산서/입고)에서 참조 중일 수 있어요.'
+          : '💡 상품 등록 후 자동으로 좌측 목록에 추가되고, 이 상품의 원가 입력 화면으로 이동합니다.'}
       </div>
 
       <div className="space-y-4">
