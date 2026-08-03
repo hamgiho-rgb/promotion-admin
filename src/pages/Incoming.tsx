@@ -184,9 +184,8 @@ export default function IncomingPage() {
      if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
    })
 
-   // (상품 × 컬러)별 합치기 + 사이즈 누적 + 납품일 범위 수집
+   // (상품 × 컬러 × 납품일)별 합치기 — 같은 상품이라도 날짜 다르면 별도 라인
    const lineMap = new Map<string, any>()
-   const dateSetMany = new Map<string, Set<string>>()
    items.forEach((it: any) => {
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
      let prod = it.product_id ? byId.get(it.product_id) : null
@@ -196,11 +195,8 @@ export default function IncomingPage() {
        prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
      }
      const colorKey = prod?.color || ''
-     const k = `${pKey}__${colorKey}`
-     if (it.delivery_date) {
-       if (!dateSetMany.has(k)) dateSetMany.set(k, new Set())
-       dateSetMany.get(k)!.add(String(it.delivery_date))
-     }
+     const dateKey = it.delivery_date || ''
+     const k = `${pKey}__${colorKey}__${dateKey}`   // ★ 납품일 포함
      const existing = lineMap.get(k)
      const sizes = it.sizes || {}
      if (existing) {
@@ -216,7 +212,7 @@ export default function IncomingPage() {
          if (num > 0) newSizes[sz] = num
        })
        lineMap.set(k, {
-         line_date: null,
+         line_date: it.delivery_date || null,
          product_id: prod?.id || it.product_id || null,
          product_name: prod?.name || it.product_name || it.product_code || '',
          color: prod?.color || null,
@@ -227,18 +223,14 @@ export default function IncomingPage() {
        })
      }
    })
-   // 납품일 범위 문자열 세팅
-   for (const [k, ds] of dateSetMany.entries()) {
-     const line = lineMap.get(k)
-     if (!line) continue
-     const sorted = Array.from(ds).sort()
-     if (sorted.length === 1) line.line_date = sorted[0]
-     else if (sorted.length > 1) line.line_date = `${sorted[0]}~${sorted[sorted.length - 1]}`
-   }
-   const lines = Array.from(lineMap.values()).sort((a, b) =>
-     (a.product_name || '').localeCompare(b.product_name || '') ||
-     (a.color || '').localeCompare(b.color || '')
-   )
+   // 정렬 — 납품일 오름차순 → 상품명 → 컬러
+   const lines = Array.from(lineMap.values()).sort((a, b) => {
+     const da = a.line_date || ''
+     const db = b.line_date || ''
+     if (da !== db) return da.localeCompare(db)
+     return (a.product_name || '').localeCompare(b.product_name || '') ||
+            (a.color || '').localeCompare(b.color || '')
+   })
    const subtotal = lines.reduce((s, l) => s + l.quantity * l.unit_price, 0)
    const vat = Math.round(subtotal * 0.1)
    const total = subtotal + vat
@@ -301,16 +293,16 @@ export default function IncomingPage() {
    if (items.length === 0) return alert('입고 라인이 없어요.')
 
    // ① 이 입고에서 이미 발행된 계산서들의 라인을 모두 모아서 "이미 발행된 키" 집합 만들기
-   //    키 = `${product}__${color}` — 같은 상품+컬러는 한 라인 (사이즈는 같은 라인의 sizes에 합쳐짐)
+   //    키 = `${product}__${color}__${line_date}` — 같은 상품+컬러라도 납품일 다르면 별개
    const { data: existingInvs } = await supabase
      .from('invoices').select('id').eq('incoming_id', inc.id).is('deleted_at', null)
    const existingInvIds = (existingInvs ?? []).map((x: any) => x.id)
    const alreadyKeys = new Set<string>()
    if (existingInvIds.length > 0) {
      const { data: existingItems } = await supabase
-       .from('invoice_items').select('product_id, product_name, color').in('invoice_id', existingInvIds)
+       .from('invoice_items').select('product_id, product_name, color, line_date').in('invoice_id', existingInvIds)
      ;(existingItems ?? []).forEach((it: any) => {
-       const k = `${it.product_id || it.product_name || ''}__${it.color || ''}`
+       const k = `${it.product_id || it.product_name || ''}__${it.color || ''}__${it.line_date || ''}`
        alreadyKeys.add(k)
      })
    }
@@ -334,10 +326,9 @@ export default function IncomingPage() {
      if (m) fallbackDate = `${m[1]}-${m[2].padStart(2, '0')}-01`
    }
 
-   // ③ 라인 변환 — (상품 × 컬러) 별로 합치고 사이즈는 sizes JSON에 누적
-   //    납품일은 수집 → 여러 개면 최소~최대 범위로 표시
+   // ③ 라인 변환 — (상품 × 컬러 × 납품일) 별로 합침
+   //    같은 상품이라도 납품일이 다르면 별도 라인 (리오더 명확히 표시)
    const lineMap = new Map<string, any>()
-   const dateSet = new Map<string, Set<string>>()   // key → Set of delivery_date strings
    items.forEach((it: any) => {
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
      let prod = it.product_id ? byId.get(it.product_id) : null
@@ -347,15 +338,12 @@ export default function IncomingPage() {
        prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
      }
      const colorKey = prod?.color || ''
-     const k = `${pKey}__${colorKey}`
-     // 납품일 수집
-     if (it.delivery_date) {
-       if (!dateSet.has(k)) dateSet.set(k, new Set())
-       dateSet.get(k)!.add(String(it.delivery_date))
-     }
+     const dateKey = it.delivery_date || ''
+     const k = `${pKey}__${colorKey}__${dateKey}`   // ★ 납품일 포함
 
      const existing = lineMap.get(k)
      if (existing) {
+       // 같은 (상품 × 컬러 × 납품일) — 사이즈만 누적 (같은 카톤 다른 사이즈 등)
        const sizes = it.sizes || {}
        Object.entries(sizes).forEach(([sz, n]) => {
          const num = Number(n) || 0
@@ -370,7 +358,7 @@ export default function IncomingPage() {
          if (num > 0) newSizes[sz] = num
        })
        lineMap.set(k, {
-         line_date: null,   // 아래서 dateSet 종합해서 채움
+         line_date: it.delivery_date || null,   // 원본 납품일 그대로
          product_id: prod?.id || it.product_id || null,
          product_name: prod?.name || it.product_name || it.product_code || '',
          color: prod?.color || null,
@@ -381,26 +369,18 @@ export default function IncomingPage() {
        })
      }
    })
-   // 납품일 범위 표기 문자열 만들기
-   function dateRangeString(dates: string[]): string {
-     if (dates.length === 0) return ''
-     const sorted = dates.slice().sort()
-     if (sorted.length === 1) return sorted[0]
-     const first = sorted[0], last = sorted[sorted.length - 1]
-     return first === last ? first : `${first}~${last}`
-   }
-   for (const [k, ds] of dateSet.entries()) {
-     const line = lineMap.get(k)
-     if (line) line.line_date = dateRangeString(Array.from(ds))
-   }
-   const allLines = Array.from(lineMap.values()).sort((a, b) =>
-     (a.product_name || '').localeCompare(b.product_name || '') ||
-     (a.color || '').localeCompare(b.color || '')
-   )
+   // 정렬 — 날짜 오름차순 → 상품명 → 컬러
+   const allLines = Array.from(lineMap.values()).sort((a, b) => {
+     const da = a.line_date || ''
+     const db = b.line_date || ''
+     if (da !== db) return da.localeCompare(db)
+     return (a.product_name || '').localeCompare(b.product_name || '') ||
+            (a.color || '').localeCompare(b.color || '')
+   })
 
-   // ④ 이미 발행된 라인 제외 → 신규만 남김
+   // ④ 이미 발행된 라인 제외 → 신규만 남김 (납품일까지 일치할 때만 중복)
    const newLines = allLines.filter(l => {
-     const k = `${l.product_id || l.product_name}__${l.color || ''}`
+     const k = `${l.product_id || l.product_name}__${l.color || ''}__${l.line_date || ''}`
      return !alreadyKeys.has(k)
    })
    const skippedCount = allLines.length - newLines.length
