@@ -46,6 +46,7 @@ export default function CostBreakdown() {
 
   // 신규 상품 등록 드로어
   const [newProductOpen, setNewProductOpen] = useState(false)
+  const [editingProduct, setEditingProduct] = useState<Product | null>(null)
 
   // 일괄 선택 (상품 삭제용)
   const [selectMode, setSelectMode] = useState(false)
@@ -530,7 +531,14 @@ export default function CostBreakdown() {
                   <div className="flex items-center gap-2">
                     <span className="text-[18px]">📦</span>
                     <div>
-                      <p className="text-[15px] font-semibold text-zinc-900">{selectedProduct.name}</p>
+                      <p className="text-[15px] font-semibold text-zinc-900 flex items-center gap-1.5">
+                        {selectedProduct.name}
+                        <button
+                          onClick={() => setEditingProduct(selectedProduct)}
+                          className="text-blue-500 hover:text-blue-700 text-[13px]"
+                          title="상품 정보 수정 (품번/이름/컬러/판매가 등)"
+                        >✎</button>
+                      </p>
                       <p className="text-[11px] text-zinc-500">{selectedProduct.code} {selectedProduct.color ? `· ${selectedProduct.color}` : ''}</p>
                     </div>
                   </div>
@@ -739,15 +747,17 @@ export default function CostBreakdown() {
         onCopy={copyFromProduct}
       />
 
-      {/* 신규 상품 등록 드로어 */}
+      {/* 신규 상품 등록 / 상품 정보 수정 드로어 */}
       <NewProductDrawer
-        open={newProductOpen}
-        onClose={() => setNewProductOpen(false)}
+        open={newProductOpen || !!editingProduct}
+        editing={editingProduct}
+        onClose={() => { setNewProductOpen(false); setEditingProduct(null) }}
         customers={customers}
-        onCreated={async (newId) => {
+        onCreated={async (savedId) => {
           setNewProductOpen(false)
+          setEditingProduct(null)
           await loadAll()
-          setSelectedId(newId)
+          setSelectedId(savedId)
         }}
         onCustomersChanged={loadAll}
       />

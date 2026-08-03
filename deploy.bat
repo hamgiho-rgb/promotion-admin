@@ -5,11 +5,11 @@ title Deploy via GitHub
 
 echo.
 echo  ========================================
-echo   Deploy to Netlify (via GitHub)
+echo   Deploy to Cloudflare Pages (via GitHub)
 echo  ========================================
 echo.
 
-echo  [1/3] Local build sanity check...
+echo  [1/4] Local build sanity check...
 echo.
 call npm run build
 if errorlevel 1 (
@@ -36,42 +36,53 @@ if errorlevel 1 (
   goto :end
 )
 
-echo  [2/3] Checking for changes...
+echo  [2/4] Committing local changes (if any)...
 git status --porcelain > "%TEMP%\gitstat.txt" 2>nul
 for %%A in ("%TEMP%\gitstat.txt") do set GITSIZE=%%~zA
-if "%GITSIZE%"=="0" (
-  del "%TEMP%\gitstat.txt" >nul 2>&1
-  echo  No changes since last commit. Skipping push.
-  echo  Live site should already be up-to-date.
-  goto :end
-)
 del "%TEMP%\gitstat.txt" >nul 2>&1
 
-echo.
-set /p MSG="Commit message (empty = 'update'): "
-if "!MSG!"=="" set MSG=update
+if "%GITSIZE%"=="0" (
+  echo  No local changes to commit.
+  echo.
+) else (
+  echo.
+  set /p MSG="Commit message (empty = 'update'): "
+  if "!MSG!"=="" set MSG=update
+  git add -A
+  git commit -m "!MSG!"
+  if errorlevel 1 (
+    echo  ERROR: commit failed.
+    goto :end
+  )
+)
 
 echo.
-echo  [3/3] Pushing to GitHub - Netlify will auto-deploy in 1-2 min...
-git add -A
-git commit -m "!MSG!"
+echo  [3/4] Pulling latest from GitHub (auto rebase)...
+git pull --rebase origin main
 if errorlevel 1 (
-  echo  Nothing to commit.
+  echo.
+  echo  ERROR: git pull failed. Likely a merge conflict.
+  echo  Resolve conflicts manually then run:
+  echo    git rebase --continue
+  echo    then re-run deploy.bat
   goto :end
 )
+
+echo.
+echo  [4/4] Pushing to GitHub - Cloudflare Pages will auto-deploy in 1-2 min...
 git push -u origin HEAD
 if errorlevel 1 (
+  echo.
   echo  ERROR: push failed. Code not backed up to GitHub.
   goto :end
 )
 
 echo.
 echo  ========================================
-echo   PUSHED - Netlify auto-builds now
+echo   PUSHED - Cloudflare auto-builds now
 echo  ========================================
 echo  Live (1-2 min): https://promotion-admin-ati.pages.dev
 echo  GitHub:         https://github.com/hamgiho-rgb/promotion-admin
-echo  Build progress: https://app.netlify.com/projects/promotion-admin/deploys
 echo.
 
 :end

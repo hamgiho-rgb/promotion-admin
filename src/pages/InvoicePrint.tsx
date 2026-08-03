@@ -110,11 +110,7 @@ export default function InvoicePrint() {
 
           {/* 거래 라인 표 */}
           {(() => {
-            // 컬럼 자동 표시/숨김
-            const showDate = items.some(it => (it.line_date || '').trim() !== '')
-            const showColor = items.some(it => (it.color || '').trim() !== '')
-            const showSingleSize = items.some(it => ((it as any).size || '').toString().trim() !== '')
-
+            // 컬럼: 날짜/칼라는 항상 표시 (비어있어도 컬럼은 유지 — 발행일로 대체)
             // sizes JSON에서 모든 사이즈 키 수집 (사이즈별 컬럼 펼침)
             const sizeKeySet = new Set<string>()
             items.forEach(it => {
@@ -123,16 +119,29 @@ export default function InvoicePrint() {
             })
             const sizeKeys = Array.from(sizeKeySet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
             const showSizeColumns = sizeKeys.length > 0
-            const totalCols = (showDate ? 1 : 0) + 1 + (showColor ? 1 : 0) + (showSingleSize && !showSizeColumns ? 1 : 0) + sizeKeys.length + 3
+            // 단일 사이즈 필드 — 사이즈 컬럼 없고 어떤 라인이라도 size 있을 때만
+            const showSingleSize = !showSizeColumns && items.some(it => ((it as any).size || '').toString().trim() !== '')
+            const totalCols = 1 /*날짜*/ + 1 /*품명*/ + 1 /*칼라*/ + (showSingleSize ? 1 : 0) + sizeKeys.length + 3
+
+            // 상품명 끝의 "(컬러)" 자동 추출 — color 필드가 비어있을 때 fallback
+            function extractColor(it: any): string {
+              if (it.color && it.color.trim()) return it.color.trim()
+              const m = String(it.product_name || '').match(/\(([^()]+)\)\s*$/)
+              return m ? m[1].trim() : ''
+            }
+            function stripColorFromName(it: any): string {
+              if (it.color && it.color.trim()) return it.product_name || ''
+              return String(it.product_name || '').replace(/\s*\(([^()]+)\)\s*$/, '').trim()
+            }
 
             return (
               <table className="w-full text-[12px] border-2 border-zinc-800 mt-3">
                 <thead>
                   <tr className="bg-zinc-100 border-b-2 border-zinc-800">
-                    {showDate && <th className="px-2 py-2 border-r border-zinc-300 w-24">날짜</th>}
+                    <th className="px-2 py-2 border-r border-zinc-300 w-28">납품일</th>
                     <th className="px-2 py-2 border-r border-zinc-300">품명</th>
-                    {showColor && <th className="px-2 py-2 border-r border-zinc-300 w-16">칼라</th>}
-                    {showSingleSize && !showSizeColumns && <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>}
+                    <th className="px-2 py-2 border-r border-zinc-300 w-20">칼라</th>
+                    {showSingleSize && <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>}
                     {sizeKeys.map(sz => (
                       <th key={sz} className="px-1 py-2 border-r border-zinc-300 text-center tabular-nums" style={{ minWidth: '40px' }}>{sz}</th>
                     ))}
@@ -146,12 +155,16 @@ export default function InvoicePrint() {
                     <tr><td colSpan={totalCols} className="text-center py-6 text-zinc-400">등록된 거래 라인이 없습니다.</td></tr>
                   ) : items.map(it => {
                     const itemSizes = ((it as any).sizes || {}) as Record<string, number>
+                    // 날짜: line_date 있으면 사용, 없으면 계산서 발행일로 대체
+                    const dateStr = (it.line_date || '').trim() || invoice.issue_date || ''
+                    const colorStr = extractColor(it)
+                    const nameStr = stripColorFromName(it)
                     return (
                       <tr key={it.id} className={`border-b border-zinc-200 ${it.is_return ? 'bg-rose-50/50' : ''}`}>
-                        {showDate && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{it.line_date || ''}</td>}
-                        <td className="px-2 py-1.5 border-r border-zinc-200">{it.product_name || ''}</td>
-                        {showColor && <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{it.color || ''}</td>}
-                        {showSingleSize && !showSizeColumns && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{(it as any).size || ''}</td>}
+                        <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums text-[11px]">{dateStr}</td>
+                        <td className="px-2 py-1.5 border-r border-zinc-200">{nameStr}</td>
+                        <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{colorStr || '—'}</td>
+                        {showSingleSize && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums">{(it as any).size || ''}</td>}
                         {sizeKeys.map(sz => {
                           const n = Number(itemSizes[sz] || 0)
                           return (
