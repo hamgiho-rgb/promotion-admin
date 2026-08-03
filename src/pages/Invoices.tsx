@@ -223,6 +223,7 @@ export default function InvoicesPage() {
      notes: inv.notes,
      size_labels: sizeLabels,
      lines: (items || []).map(it => ({
+       line_date: it.line_date,
        product_name: it.product_name,
        color: it.color,
        quantity: it.quantity,

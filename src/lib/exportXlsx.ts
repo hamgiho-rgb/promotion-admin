@@ -287,6 +287,7 @@ function aoaToSheetWithFormulas(aoa: any[][]): XLSX.WorkSheet {
  * - 합계 / 부가세 / 총합 자동
  * ───────────────────────────────────────────── */
 export interface FullInvoiceLine {
+  line_date?: string | null           // 납품일 (있으면 첫 컬럼에 표시)
   product_name?: string | null
   color?: string | null
   sizes?: Record<string, number> | null
@@ -323,9 +324,12 @@ export function exportInvoiceFull(inv: FullInvoice, filename?: string) {
   }
   const hasSizes = sizeLabels.length > 0
   const hasColor = inv.lines.some(l => l.color && l.color.trim())
+  const hasDate = inv.lines.some(l => l.line_date && String(l.line_date).trim())
 
-  // 컬럼 구성: 품명 | [컬러] | [사이즈들...] | 수량 | 단가 | 금액
-  const headerCols: string[] = ['품명']
+  // 컬럼 구성: [납품일] | 품명 | [컬러] | [사이즈들...] | 수량 | 단가 | 금액
+  const headerCols: string[] = []
+  if (hasDate) headerCols.push('납품일')
+  headerCols.push('품명')
   if (hasColor) headerCols.push('컬러')
   sizeLabels.forEach(s => headerCols.push(s))
   headerCols.push('수량', '단가', '금액')
@@ -335,6 +339,12 @@ export function exportInvoiceFull(inv: FullInvoice, filename?: string) {
 
   // 컬럼 너비 — 컨텐츠 기반
   const colWidths: number[] = []
+  // 납품일 컬럼
+  if (hasDate) {
+    let maxDateW = vw('납품일')
+    inv.lines.forEach(l => { maxDateW = Math.max(maxDateW, vw(String(l.line_date || ''))) })
+    colWidths.push(Math.max(13, maxDateW + 2))
+  }
   // 품명 컬럼
   let maxNameW = vw('품명')
   inv.lines.forEach(l => { maxNameW = Math.max(maxNameW, vw(l.product_name || '')) })
@@ -385,7 +395,9 @@ export function exportInvoiceFull(inv: FullInvoice, filename?: string) {
     const price = Number(l.unit_price || 0)
     const amount = qty * price
     subtotal += amount
-    const row: any[] = [l.product_name || '']
+    const row: any[] = []
+    if (hasDate) row.push(l.line_date || '')
+    row.push(l.product_name || '')
     if (hasColor) row.push(l.color || '')
     sizeLabels.forEach(s => {
       const v = l.sizes?.[s]
