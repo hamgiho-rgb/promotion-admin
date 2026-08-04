@@ -193,10 +193,10 @@ export default function CostBreakdown() {
     loadItems(selectedId)
   }
 
-  /** 상품 복사 — 기존 상품 → 새 품번/컬러로 복제. 원가도 같이 복사 옵션 */
-  async function cloneProduct(source: Product, newCode: string, newColor: string, newName: string | null, copyCost: boolean) {
+  /** 상품 복사 — 기존 상품 → 새 품번/컬러/거래처로 복제. 원가도 같이 복사 옵션 */
+  async function cloneProduct(source: Product, newCode: string, newColor: string, newName: string | null, copyCost: boolean, targetVendorId?: string) {
     const payload = {
-      vendor_id: source.vendor_id,
+      vendor_id: targetVendorId || source.vendor_id,   // 지정된 거래처, 없으면 원본과 동일
       code: newCode.trim(),
       name: (newName?.trim() || source.name || ''),
       name_en: source.name_en || null,
@@ -211,7 +211,7 @@ export default function CostBreakdown() {
       const msg = error.message.toLowerCase()
       if (msg.includes('duplicate') || msg.includes('unique')) {
         const { data: trashed } = await supabase.from('products')
-          .select('id, name').eq('vendor_id', source.vendor_id).eq('code', payload.code)
+          .select('id, name').eq('vendor_id', payload.vendor_id).eq('code', payload.code)
           .not('deleted_at', 'is', null).maybeSingle()
         if (trashed) {
           if (confirm(`품번 '${payload.code}' 가 휴지통에 있습니다. ('${trashed.name}')\n복구해서 복제 정보로 업데이트할까요?`)) {
@@ -235,6 +235,48 @@ export default function CostBreakdown() {
     setCopyProductOpen(false)
     await loadAll()
     setSelectedId(created.id)
+  }
+
+  /** 상품 이동 — 다른 거래처로 vendor_id 변경. 연결된 이력 개수 확인 후 경고 */
+  async function moveProduct(source: Product, targetVendorId: string) {
+    if (targetVendorId === source.vendor_id) { alert('같은 거래처예요. 다른 거래처를 선택하세요.'); return }
+    // 연결된 이력 개수 확인
+    const [{ count: invCount }, { count: incCount }, { count: costCount }] = await Promise.all([
+      supabase.from('invoice_items').select('id', { count: 'exact', head: true }).eq('product_id', source.id),
+      supabase.from('incoming_items').select('id', { count: 'exact', head: true }).eq('product_id', source.id),
+      supabase.from('cost_items').select('id', { count: 'exact', head: true }).eq('product_id', source.id),
+    ])
+    const srcVendorName = customers.find(c => c.id === source.vendor_id)?.name || '(원본)'
+    const dstVendorName = customers.find(c => c.id === targetVendorId)?.name || '(대상)'
+    // 휴지통 중복 체크 — 대상 거래처에 같은 품번이 살아있는 상품 있으면 이동 불가
+    const { data: dup } = await supabase.from('products')
+      .select('id, name').eq('vendor_id', targetVendorId).eq('code', source.code)
+      .is('deleted_at', null).maybeSingle()
+    if (dup) {
+      alert(`이동 실패: 대상 거래처 '${dstVendorName}'에 이미 같은 품번 '${source.code}' 상품이 있어요 (${dup.name}).\n다른 품번으로 복사하거나 대상 상품을 먼저 정리하세요.`)
+      return
+    }
+
+    // 이력 있으면 경고
+    const hasHistory = (invCount || 0) > 0 || (incCount || 0) > 0
+    let msg = `🚚 상품 이동\n\n${source.name} (${source.code})\n${srcVendorName} → ${dstVendorName}\n\n`
+    if (hasHistory) {
+      msg += `⚠ 기존 연결 이력:\n`
+      if (invCount) msg += `  · 계산서 라인: ${invCount}건\n`
+      if (incCount) msg += `  · 입고 라인: ${incCount}건\n`
+      if (costCount) msg += `  · 원가 항목: ${costCount}건 (자동 유지됨)\n`
+      msg += `\n※ 계산서/입고 라인들은 원본 거래처(${srcVendorName})에 이미 발행돼있어서,\n   상품만 옮기면 이력이 뒤섞여 보일 수 있어요.\n\n그래도 진행할까요?`
+    } else {
+      msg += `연결된 이력 없음. 안전하게 이동 가능.\n\n진행할까요?`
+    }
+    if (!confirm(msg)) return
+
+    // vendor_id 변경
+    const { error } = await supabase.from('products').update({ vendor_id: targetVendorId }).eq('id', source.id)
+    if (error) { alert('이동 실패: ' + error.message); return }
+    setCopyProductOpen(false)
+    await loadAll()
+    setSelectedId(source.id)   // 옮긴 상품 그대로 유지
   }
 
   /** cost_items를 다른 상품으로 복사 (내부 헬퍼) */
@@ -814,12 +856,14 @@ export default function CostBreakdown() {
         onCopy={copyFromProduct}
       />
 
-      {/* 상품 복사 모달 */}
+      {/* 상품 복사 / 이동 모달 */}
       <CloneProductModal
         open={copyProductOpen}
         source={selectedProduct}
+        customers={customers}
         onClose={() => setCopyProductOpen(false)}
         onClone={cloneProduct}
+        onMove={moveProduct}
       />
 
       {/* 신규 상품 등록 / 상품 정보 수정 드로어 */}
@@ -946,102 +990,189 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
  * 상품 복사 모달 — 이 상품을 새 품번/컬러로 복제
  * 예) 같은 디자인 다른 컬러: DD26SMTS-007-SK (스카이) → DD26SMTS-007-BK (블랙)
  * ───────────────────────────────────────────── */
-function CloneProductModal({ open, source, onClose, onClone }: {
+function CloneProductModal({ open, source, customers, onClose, onClone, onMove }: {
   open: boolean
   source: Product | null
+  customers: Vendor[]
   onClose: () => void
-  onClone: (source: Product, newCode: string, newColor: string, newName: string | null, copyCost: boolean) => void
+  onClone: (source: Product, newCode: string, newColor: string, newName: string | null, copyCost: boolean, targetVendorId?: string) => void
+  onMove: (source: Product, targetVendorId: string) => void
 }) {
+  const [mode, setMode] = useState<'copy' | 'move'>('copy')
   const [newCode, setNewCode] = useState('')
   const [newColor, setNewColor] = useState('')
   const [newName, setNewName] = useState('')
   const [copyCost, setCopyCost] = useState(true)
+  const [targetVendorId, setTargetVendorId] = useState<string>('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
     if (!open || !source) return
-    // 기존 품번 끝의 컬러코드(-SK, -BK 등)만 대체할 수 있도록 준비
+    setMode('copy')
     const codeBase = (source.code || '').replace(/-[A-Z]{2,4}$/, '')
-    setNewCode(codeBase + '-')   // 사용자가 새 컬러코드만 붙이면 됨
+    setNewCode(codeBase + '-')
     setNewColor('')
     setNewName(source.name || '')
     setCopyCost(true)
+    setTargetVendorId(source.vendor_id || '')
     setSaving(false)
   }, [open, source])
 
   if (!open || !source) return null
 
+  const sourceVendorName = customers.find(c => c.id === source.vendor_id)?.name || '(원본 거래처)'
+  const isDifferentVendor = targetVendorId && targetVendorId !== source.vendor_id
+  const targetVendorName = customers.find(c => c.id === targetVendorId)?.name || ''
+
   function handleSubmit() {
+    if (mode === 'move') {
+      if (!targetVendorId || targetVendorId === source?.vendor_id) {
+        alert('다른 거래처를 선택해주세요.')
+        return
+      }
+      setSaving(true)
+      onMove(source!, targetVendorId)
+      return
+    }
+    // 복사 모드
     if (!newCode.trim()) { alert('새 품번을 입력해주세요.'); return }
-    if (newCode.trim() === (source?.code || '')) { alert('품번이 원본과 같아요. 다른 품번으로 입력해주세요.'); return }
+    if (targetVendorId === source?.vendor_id && newCode.trim() === (source?.code || '')) {
+      alert('같은 거래처에서 품번이 원본과 같아요. 다른 품번으로 입력해주세요.')
+      return
+    }
     setSaving(true)
-    onClone(source!, newCode.trim(), newColor.trim(), newName.trim() || null, copyCost)
+    onClone(source!, newCode.trim(), newColor.trim(), newName.trim() || null, copyCost, targetVendorId || undefined)
   }
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
       <div className="bg-white rounded-2xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-zinc-100">
-          <h2 className="text-[16px] font-semibold text-zinc-900">🎨 상품 복사</h2>
+          <h2 className="text-[16px] font-semibold text-zinc-900">
+            {mode === 'copy' ? '🎨 상품 복사' : '🚚 상품 이동'}
+          </h2>
           <p className="text-[12px] text-zinc-500 mt-0.5">
             <span className="font-semibold text-zinc-800">{source.name}</span>
-            {source.color ? ` (${source.color})` : ''} 를 새 품번/컬러로 복제합니다.
+            {source.color ? ` (${source.color})` : ''}
+            {mode === 'copy' ? ' 를 새 상품으로 복제합니다.' : ' 를 다른 거래처로 이동합니다.'}
           </p>
         </div>
         <div className="p-5 space-y-3">
+          {/* 모드 토글 */}
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setMode('copy')}
+              className={`flex-1 px-3 py-2 rounded-md text-[13px] font-medium border transition-colors ${
+                mode === 'copy' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+              }`}
+            >🎨 복사 (원본 유지)</button>
+            <button
+              type="button"
+              onClick={() => setMode('move')}
+              className={`flex-1 px-3 py-2 rounded-md text-[13px] font-medium border transition-colors ${
+                mode === 'move' ? 'bg-amber-600 text-white border-amber-600' : 'bg-white text-zinc-700 border-zinc-300 hover:bg-zinc-50'
+              }`}
+            >🚚 이동 (원본 없어짐)</button>
+          </div>
+
           <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg text-[11px] text-zinc-600">
             <div>원본 품번: <span className="font-mono font-semibold text-zinc-800">{source.code}</span></div>
-            <div>거래처: {source.vendor_id ? '(자동 유지)' : '—'} · 브랜드: {source.brand || '—'} · 판매가 ₩{Number(source.selling_price || 0).toLocaleString()}</div>
+            <div>거래처: <span className="text-zinc-800">{sourceVendorName}</span> · 브랜드: {source.brand || '—'} · 판매가 ₩{Number(source.selling_price || 0).toLocaleString()}</div>
           </div>
           <div>
-            <label className="block text-[12px] font-medium text-zinc-700 mb-1">새 품번 *</label>
-            <input
-              type="text"
-              value={newCode}
-              onChange={e => setNewCode(e.target.value)}
-              autoFocus
-              placeholder="예: DD26SMTS-007-BK"
-              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">
+              {mode === 'move' ? '이동할 거래처 *' : '거래처 *'}
+            </label>
+            <VendorSearchSelect
+              value={targetVendorId || 'all'}
+              vendors={customers}
+              onChange={v => setTargetVendorId(v === 'all' ? '' : v)}
+              placeholder="🔍 거래처 검색"
             />
-            <p className="text-[10px] text-zinc-500 mt-1">원본 품번에서 컬러코드(-SK 등) 부분만 바꿔주세요.</p>
+            {mode === 'copy' && isDifferentVendor && (
+              <p className="text-[10px] text-blue-700 mt-1">
+                💡 다른 거래처(<strong>{targetVendorName}</strong>)로 복사됩니다. 원본은 <strong>{sourceVendorName}</strong>에 그대로 남음.
+              </p>
+            )}
+            {mode === 'move' && isDifferentVendor && (
+              <p className="text-[10px] text-amber-700 mt-1">
+                ⚠ 상품이 <strong>{sourceVendorName}</strong>에서 <strong>{targetVendorName}</strong>으로 옮겨집니다. 기존 계산서/입고 이력은 원본 거래처에 남지만 상품 참조가 뒤섞일 수 있어요. 진행 전 다음 확인 창에서 이력 개수 알려드림.
+              </p>
+            )}
           </div>
-          <div>
-            <label className="block text-[12px] font-medium text-zinc-700 mb-1">새 컬러</label>
-            <input
-              type="text"
-              value={newColor}
-              onChange={e => setNewColor(e.target.value)}
-              placeholder="예: 블랙"
-              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-          <div>
-            <label className="block text-[12px] font-medium text-zinc-700 mb-1">품목명 (수정 가능)</label>
-            <input
-              type="text"
-              value={newName}
-              onChange={e => setNewName(e.target.value)}
-              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
-            />
-            <p className="text-[10px] text-zinc-500 mt-1">보통 원본과 동일. 필요하면 수정.</p>
-          </div>
-          <label className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${copyCost ? 'border-blue-500 bg-blue-50' : 'border-zinc-300 hover:bg-zinc-50'}`}>
-            <input
-              type="checkbox"
-              checked={copyCost}
-              onChange={e => setCopyCost(e.target.checked)}
-              className="w-4 h-4"
-            />
-            <div className="text-[12.5px]">
-              <div className="font-medium">원가 항목도 같이 복사</div>
-              <div className="text-[10px] text-zinc-500">체크 해제 시 상품만 복제되고 원가는 빈 상태로 시작</div>
+
+          {/* 복사 모드일 때만 품번/컬러/이름 노출 */}
+          {mode === 'copy' && (
+            <>
+              <div>
+                <label className="block text-[12px] font-medium text-zinc-700 mb-1">새 품번 *</label>
+                <input
+                  type="text"
+                  value={newCode}
+                  onChange={e => setNewCode(e.target.value)}
+                  autoFocus
+                  placeholder="예: DD26SMTS-007-BK"
+                  className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-zinc-500 mt-1">원본 품번에서 컬러코드(-SK 등) 부분만 바꿔주세요.</p>
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-zinc-700 mb-1">새 컬러</label>
+                <input
+                  type="text"
+                  value={newColor}
+                  onChange={e => setNewColor(e.target.value)}
+                  placeholder="예: 블랙"
+                  className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+              </div>
+              <div>
+                <label className="block text-[12px] font-medium text-zinc-700 mb-1">품목명 (수정 가능)</label>
+                <input
+                  type="text"
+                  value={newName}
+                  onChange={e => setNewName(e.target.value)}
+                  className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+                />
+                <p className="text-[10px] text-zinc-500 mt-1">보통 원본과 동일. 필요하면 수정.</p>
+              </div>
+              <label className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${copyCost ? 'border-blue-500 bg-blue-50' : 'border-zinc-300 hover:bg-zinc-50'}`}>
+                <input
+                  type="checkbox"
+                  checked={copyCost}
+                  onChange={e => setCopyCost(e.target.checked)}
+                  className="w-4 h-4"
+                />
+                <div className="text-[12.5px]">
+                  <div className="font-medium">원가 항목도 같이 복사</div>
+                  <div className="text-[10px] text-zinc-500">체크 해제 시 상품만 복제되고 원가는 빈 상태로 시작</div>
+                </div>
+              </label>
+            </>
+          )}
+
+          {/* 이동 모드 안내 */}
+          {mode === 'move' && (
+            <div className="p-3 bg-amber-50 border border-amber-300 rounded-lg text-[11px] text-amber-800 space-y-1">
+              <div className="font-semibold">🚚 이동 모드</div>
+              <div>· 품번 유지 (변경 안 됨)</div>
+              <div>· 원가 항목 유지 (같이 옮겨짐)</div>
+              <div>· 대상 거래처에 같은 품번 이미 있으면 이동 실패</div>
+              <div>· 기존 계산서/입고 이력 있으면 진행 전 개수 안내 후 확인</div>
             </div>
-          </label>
+          )}
         </div>
         <div className="px-5 py-3 border-t border-zinc-100 flex justify-end gap-2">
           <button onClick={onClose} className="px-4 py-2 rounded-md border border-zinc-300 text-zinc-700 text-[13px] hover:bg-zinc-50">취소</button>
-          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-medium disabled:opacity-50">
-            {saving ? '복제 중...' : '🎨 복제하기'}
+          <button
+            onClick={handleSubmit}
+            disabled={saving}
+            className={`px-4 py-2 rounded-md text-white text-[13px] font-medium disabled:opacity-50 ${
+              mode === 'copy' ? 'bg-indigo-600 hover:bg-indigo-700' : 'bg-amber-600 hover:bg-amber-700'
+            }`}
+          >
+            {saving ? '처리 중...' : (mode === 'copy' ? '🎨 복제하기' : '🚚 이동하기')}
           </button>
         </div>
       </div>
