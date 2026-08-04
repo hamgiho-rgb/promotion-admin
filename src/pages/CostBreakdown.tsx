@@ -16,6 +16,7 @@ export default function CostBreakdown() {
   const [selectedId, setSelectedId] = useState<string>('')
   const [items, setItems] = useState<CostItem[]>([])
   const [copyModalOpen, setCopyModalOpen] = useState(false)
+  const [copyProductOpen, setCopyProductOpen] = useState(false)
 
   // 좌측 거래처/브랜드 접기 상태 (localStorage 저장)
   const COLLAPSE_KEY = 'cost_breakdown_collapsed'
@@ -190,6 +191,65 @@ export default function CostBreakdown() {
     if (error) return alert('복사 실패: ' + error.message)
     setCopyModalOpen(false)
     loadItems(selectedId)
+  }
+
+  /** 상품 복사 — 기존 상품 → 새 품번/컬러로 복제. 원가도 같이 복사 옵션 */
+  async function cloneProduct(source: Product, newCode: string, newColor: string, newName: string | null, copyCost: boolean) {
+    const payload = {
+      vendor_id: source.vendor_id,
+      code: newCode.trim(),
+      name: (newName?.trim() || source.name || ''),
+      name_en: source.name_en || null,
+      brand: source.brand || null,
+      color: newColor.trim() || null,
+      selling_price: Number(source.selling_price) || 0,
+    }
+    // 새 상품 등록
+    const { data: created, error } = await supabase.from('products').insert(payload).select().single()
+    if (error) {
+      // 휴지통 중복 자동 복구 시도
+      const msg = error.message.toLowerCase()
+      if (msg.includes('duplicate') || msg.includes('unique')) {
+        const { data: trashed } = await supabase.from('products')
+          .select('id, name').eq('vendor_id', source.vendor_id).eq('code', payload.code)
+          .not('deleted_at', 'is', null).maybeSingle()
+        if (trashed) {
+          if (confirm(`품번 '${payload.code}' 가 휴지통에 있습니다. ('${trashed.name}')\n복구해서 복제 정보로 업데이트할까요?`)) {
+            const { data: restored, error: rErr } = await supabase.from('products')
+              .update({ deleted_at: null, ...payload }).eq('id', trashed.id).select().single()
+            if (rErr) { alert('복구 실패: ' + rErr.message); return }
+            if (restored && copyCost) await copyCostToProduct(source.id, restored.id)
+            setCopyProductOpen(false)
+            await loadAll()
+            if (restored) setSelectedId(restored.id)
+            return
+          }
+        }
+      }
+      alert('복제 실패: ' + error.message)
+      return
+    }
+    if (!created) return
+    // 원가도 복사
+    if (copyCost) await copyCostToProduct(source.id, created.id)
+    setCopyProductOpen(false)
+    await loadAll()
+    setSelectedId(created.id)
+  }
+
+  /** cost_items를 다른 상품으로 복사 (내부 헬퍼) */
+  async function copyCostToProduct(srcProductId: string, dstProductId: string) {
+    const { data: srcItems } = await supabase.from('cost_items').select('*').eq('product_id', srcProductId).order('sort_order')
+    if (!srcItems || srcItems.length === 0) return
+    const payload = srcItems.map((it: any, i: number) => ({
+      product_id: dstProductId,
+      supplier_id: it.supplier_id,
+      item_name: it.item_name,
+      unit_price: Number(it.unit_price || 0),
+      yards: Number(it.yards || 0),
+      sort_order: i,
+    }))
+    await supabase.from('cost_items').insert(payload)
   }
 
   async function deleteItem(id: string) {
@@ -561,6 +621,13 @@ export default function CostBreakdown() {
                       📋 원가 복사
                     </button>
                     <button
+                      onClick={() => setCopyProductOpen(true)}
+                      className="text-[12px] px-3 py-1.5 rounded-md bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-medium whitespace-nowrap"
+                      title="이 상품을 새 품번/컬러로 복제 (원가도 같이 복사)"
+                    >
+                      🎨 상품 복사
+                    </button>
+                    <button
                       onClick={exportCurrentToExcel}
                       disabled={items.length === 0}
                       className="text-[12px] px-3 py-1.5 rounded-md bg-violet-50 hover:bg-violet-100 disabled:bg-zinc-100 disabled:text-zinc-400 text-violet-700 border border-violet-200 disabled:border-zinc-200 font-medium whitespace-nowrap"
@@ -747,6 +814,14 @@ export default function CostBreakdown() {
         onCopy={copyFromProduct}
       />
 
+      {/* 상품 복사 모달 */}
+      <CloneProductModal
+        open={copyProductOpen}
+        source={selectedProduct}
+        onClose={() => setCopyProductOpen(false)}
+        onClone={cloneProduct}
+      />
+
       {/* 신규 상품 등록 / 상품 정보 수정 드로어 */}
       <NewProductDrawer
         open={newProductOpen || !!editingProduct}
@@ -861,6 +936,113 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
               {hasExisting ? '⚠ 덮어쓰기' : '복사하기'}
             </Button>
           </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+/* ─────────────────────────────────────────────
+ * 상품 복사 모달 — 이 상품을 새 품번/컬러로 복제
+ * 예) 같은 디자인 다른 컬러: DD26SMTS-007-SK (스카이) → DD26SMTS-007-BK (블랙)
+ * ───────────────────────────────────────────── */
+function CloneProductModal({ open, source, onClose, onClone }: {
+  open: boolean
+  source: Product | null
+  onClose: () => void
+  onClone: (source: Product, newCode: string, newColor: string, newName: string | null, copyCost: boolean) => void
+}) {
+  const [newCode, setNewCode] = useState('')
+  const [newColor, setNewColor] = useState('')
+  const [newName, setNewName] = useState('')
+  const [copyCost, setCopyCost] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    if (!open || !source) return
+    // 기존 품번 끝의 컬러코드(-SK, -BK 등)만 대체할 수 있도록 준비
+    const codeBase = (source.code || '').replace(/-[A-Z]{2,4}$/, '')
+    setNewCode(codeBase + '-')   // 사용자가 새 컬러코드만 붙이면 됨
+    setNewColor('')
+    setNewName(source.name || '')
+    setCopyCost(true)
+    setSaving(false)
+  }, [open, source])
+
+  if (!open || !source) return null
+
+  function handleSubmit() {
+    if (!newCode.trim()) { alert('새 품번을 입력해주세요.'); return }
+    if (newCode.trim() === (source?.code || '')) { alert('품번이 원본과 같아요. 다른 품번으로 입력해주세요.'); return }
+    setSaving(true)
+    onClone(source!, newCode.trim(), newColor.trim(), newName.trim() || null, copyCost)
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
+      <div className="bg-white rounded-2xl shadow-xl max-w-md w-full" onClick={e => e.stopPropagation()}>
+        <div className="px-5 py-4 border-b border-zinc-100">
+          <h2 className="text-[16px] font-semibold text-zinc-900">🎨 상품 복사</h2>
+          <p className="text-[12px] text-zinc-500 mt-0.5">
+            <span className="font-semibold text-zinc-800">{source.name}</span>
+            {source.color ? ` (${source.color})` : ''} 를 새 품번/컬러로 복제합니다.
+          </p>
+        </div>
+        <div className="p-5 space-y-3">
+          <div className="p-3 bg-zinc-50 border border-zinc-200 rounded-lg text-[11px] text-zinc-600">
+            <div>원본 품번: <span className="font-mono font-semibold text-zinc-800">{source.code}</span></div>
+            <div>거래처: {source.vendor_id ? '(자동 유지)' : '—'} · 브랜드: {source.brand || '—'} · 판매가 ₩{Number(source.selling_price || 0).toLocaleString()}</div>
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">새 품번 *</label>
+            <input
+              type="text"
+              value={newCode}
+              onChange={e => setNewCode(e.target.value)}
+              autoFocus
+              placeholder="예: DD26SMTS-007-BK"
+              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-[10px] text-zinc-500 mt-1">원본 품번에서 컬러코드(-SK 등) 부분만 바꿔주세요.</p>
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">새 컬러</label>
+            <input
+              type="text"
+              value={newColor}
+              onChange={e => setNewColor(e.target.value)}
+              placeholder="예: 블랙"
+              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-zinc-700 mb-1">품목명 (수정 가능)</label>
+            <input
+              type="text"
+              value={newName}
+              onChange={e => setNewName(e.target.value)}
+              className="w-full px-3 py-2 rounded-md border border-zinc-300 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500"
+            />
+            <p className="text-[10px] text-zinc-500 mt-1">보통 원본과 동일. 필요하면 수정.</p>
+          </div>
+          <label className={`flex items-center gap-2 p-3 rounded-lg border cursor-pointer transition-colors ${copyCost ? 'border-blue-500 bg-blue-50' : 'border-zinc-300 hover:bg-zinc-50'}`}>
+            <input
+              type="checkbox"
+              checked={copyCost}
+              onChange={e => setCopyCost(e.target.checked)}
+              className="w-4 h-4"
+            />
+            <div className="text-[12.5px]">
+              <div className="font-medium">원가 항목도 같이 복사</div>
+              <div className="text-[10px] text-zinc-500">체크 해제 시 상품만 복제되고 원가는 빈 상태로 시작</div>
+            </div>
+          </label>
+        </div>
+        <div className="px-5 py-3 border-t border-zinc-100 flex justify-end gap-2">
+          <button onClick={onClose} className="px-4 py-2 rounded-md border border-zinc-300 text-zinc-700 text-[13px] hover:bg-zinc-50">취소</button>
+          <button onClick={handleSubmit} disabled={saving} className="px-4 py-2 rounded-md bg-indigo-600 hover:bg-indigo-700 text-white text-[13px] font-medium disabled:opacity-50">
+            {saving ? '복제 중...' : '🎨 복제하기'}
+          </button>
         </div>
       </div>
     </div>
