@@ -1,13 +1,12 @@
 import { useState } from 'react'
 import { supabase } from '@/lib/supabase'
 import type { Vendor } from '@/lib/types'
-import { Button, Input, Label, Drawer, Select } from '@/components/ui'
+import { Button, Input, Label, Drawer } from '@/components/ui'
+import VendorSearchSelect from '@/components/VendorSearchSelect'
 
 /* ─────────────────────────────────────────────
- * 고객 거래처 선택기 + 인라인 등록 (Products 페이지용)
+ * 고객 거래처 선택기 — 검색 가능한 드롭다운 + 인라인 신규 등록
  * ───────────────────────────────────────────── */
-
-const ADD_NEW_VALUE = '__add_new__'
 
 interface Props {
   value: string | null
@@ -17,31 +16,30 @@ interface Props {
   className?: string
 }
 
-export default function CustomerPicker({ value, customers, onChange, onCustomersChanged, className }: Props) {
+export default function CustomerPicker({ value, customers, onChange, onCustomersChanged }: Props) {
   const [drawerOpen, setDrawerOpen] = useState(false)
-
-  function handleSelect(v: string) {
-    if (v === ADD_NEW_VALUE) {
-      setDrawerOpen(true)
-    } else {
-      onChange(v || null)
-    }
-  }
 
   return (
     <>
-      <Select
-        value={value || ''}
-        onChange={e => handleSelect(e.target.value)}
-        className={className}
-      >
-        <option value="">— 선택 —</option>
-        {customers.map(c => (
-          <option key={c.id} value={c.id}>{c.name}{c.company_name ? ` (${c.company_name})` : ''}</option>
-        ))}
-        <option disabled>──────────</option>
-        <option value={ADD_NEW_VALUE}>＋ 새 고객 거래처 등록</option>
-      </Select>
+      <div className="flex gap-2 items-stretch">
+        <div className="flex-1">
+          <VendorSearchSelect
+            value={value || 'all'}
+            vendors={customers}
+            onChange={v => onChange(v === 'all' ? null : v)}
+            allLabel="— 선택 —"
+            placeholder="🔍 거래처 검색"
+          />
+        </div>
+        <button
+          type="button"
+          onClick={() => setDrawerOpen(true)}
+          className="px-3 py-2 rounded-md border border-zinc-300 bg-white hover:bg-zinc-50 text-[12px] text-zinc-700 font-medium whitespace-nowrap"
+          title="새 고객 거래처 등록"
+        >
+          ＋ 신규
+        </button>
+      </div>
 
       <NewCustomerDrawer
         open={drawerOpen}
