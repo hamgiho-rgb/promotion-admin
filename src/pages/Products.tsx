@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, useSearchParams } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, ProductMargin } from '@/lib/types'
 import { Button, Input, Textarea, Label, PageHeader, Drawer, Empty, Badge } from '@/components/ui'
@@ -28,15 +28,22 @@ function savePageState(patch: Record<string, any>) {
 
 export default function Products() {
  const navigate = useNavigate()
+ const [searchParams] = useSearchParams()
+ const urlFilter = searchParams.get('filter')  // 'missing_price' | 'missing_cost' | null
  const [products, setProducts] = useState<Product[]>([])
  const [margins, setMargins] = useState<Map<string, ProductMargin>>(new Map())
  const [vendors, setVendors] = useState<Vendor[]>([])
  const [loading, setLoading] = useState(true)
- // 초기값은 sessionStorage 에서 복원 (뒤로가기 시 이전 검색/필터 유지)
+ // 초기값 — URL 파라미터 있으면 URL 우선, 아니면 sessionStorage 복원
  const _saved = loadPageState()
  const [search, setSearch] = useState<string>(_saved.search ?? '')
  const [vendorFilter, setVendorFilter] = useState<string>(_saved.vendorFilter ?? 'all')
- const [priceFilter, setPriceFilter] = useState<'all' | 'missing'>(_saved.priceFilter ?? 'all')
+ const [priceFilter, setPriceFilter] = useState<'all' | 'missing'>(
+   urlFilter === 'missing_price' ? 'missing' : (_saved.priceFilter ?? 'all')
+ )
+ const [costFilter, setCostFilter] = useState<'all' | 'missing'>(
+   urlFilter === 'missing_cost' ? 'missing' : (_saved.costFilter ?? 'all')
+ )
  const [drawerOpen, setDrawerOpen] = useState(false)
  const [editing, setEditing] = useState<Product | null>(null)
 
@@ -44,6 +51,7 @@ export default function Products() {
  useEffect(() => { savePageState({ search }) }, [search])
  useEffect(() => { savePageState({ vendorFilter }) }, [vendorFilter])
  useEffect(() => { savePageState({ priceFilter }) }, [priceFilter])
+ useEffect(() => { savePageState({ costFilter }) }, [costFilter])
 
  // 스크롤 위치 — 마운트 시 복원, 언마운트 시 저장
  useEffect(() => {
@@ -144,6 +152,8 @@ export default function Products() {
  const filtered = products.filter(p => {
  if (vendorFilter !== 'all' && p.vendor_id !== vendorFilter) return false
  if (priceFilter === 'missing' && Number(p.selling_price || 0) > 0) return false
+ // 원가 미입력 필터 — product_margin의 production_cost가 0인 상품
+ if (costFilter === 'missing' && Number(margins.get(p.id)?.production_cost || 0) > 0) return false
  if (search) {
  const s = search.toLowerCase()
  const nameKo = (p.name || '').toLowerCase()
@@ -155,6 +165,7 @@ export default function Products() {
  return true
  })
  const missingPriceCount = products.filter(p => !Number(p.selling_price || 0)).length
+ const missingCostCount = products.filter(p => !Number(margins.get(p.id)?.production_cost || 0)).length
 
  // 거래처별 그룹핑
  const grouped = filtered.reduce<Record<string, Product[]>>((acc, p) => {
@@ -225,6 +236,15 @@ export default function Products() {
      title="판매가 0원 또는 미입력 상품만 보기 (계산서에 단가 자동 매칭이 안 됩니다)"
    >
      ⚠ 판매가 미입력 {missingPriceCount}개
+   </button>
+ )}
+ {missingCostCount > 0 && (
+   <button
+     onClick={() => setCostFilter(costFilter === 'missing' ? 'all' : 'missing')}
+     className={`text-[11px] px-2.5 py-1.5 rounded-md border transition-colors ${costFilter === 'missing' ? 'bg-violet-500 border-violet-500 text-white' : 'bg-violet-50 border-violet-300 text-violet-700 hover:bg-violet-100'}`}
+     title="원가 미입력 상품만 보기 (마진 계산 안 됨)"
+   >
+     🧮 원가 미입력 {missingCostCount}개
    </button>
  )}
  <div className="ml-auto flex items-center gap-2">

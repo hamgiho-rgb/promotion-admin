@@ -275,7 +275,7 @@ export default function Dashboard() {
                 title="판매가 미입력 상품"
                 value={`${alerts.productsNoPrice}개`}
                 hint="계산서 단가 자동 매칭 안 됨"
-                onClick={() => navigate('/products')}
+                onClick={() => navigate('/products?filter=missing_price')}
               />
             )}
             {alerts.productsNoCost > 0 && (
@@ -285,7 +285,7 @@ export default function Dashboard() {
                 title="원가 미입력 상품"
                 value={`${alerts.productsNoCost}개`}
                 hint="마진 계산 안 됨"
-                onClick={() => navigate('/products')}
+                onClick={() => navigate('/products?filter=missing_cost')}
               />
             )}
             {alerts.trashTotal > 0 && (
