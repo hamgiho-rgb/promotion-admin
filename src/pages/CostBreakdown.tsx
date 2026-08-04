@@ -5,6 +5,7 @@ import type { Product, Vendor, CostItem } from '@/lib/types'
 import { Button, Input, Select, InlineInput, PageHeader, Empty, Badge, Label, Drawer } from '@/components/ui'
 import SupplierPicker from '@/components/SupplierPicker'
 import CustomerPicker from '@/components/CustomerPicker'
+import VendorSearchSelect from '@/components/VendorSearchSelect'
 import CostImportButton from '@/components/CostImportButton'
 import { exportSheet } from '@/lib/exportXlsx'
 
