@@ -16,7 +16,7 @@ jobs:
     steps:
       - name: Ping live site
         run: |
-          echo "🏓 Pinging Cloudflare Pages site..."
+          echo "Pinging Cloudflare Pages site..."
           curl -sSf -o /dev/null -w "HTTP %{http_code} (%{time_total}s)\n" https://promotion-admin-ati.pages.dev/ || echo "site ping failed (continuing)"
 
       - name: Ping Supabase REST (if URL secret set)
@@ -25,11 +25,11 @@ jobs:
           SUPABASE_ANON_KEY: ${{ secrets.SUPABASE_ANON_KEY }}
         run: |
           if [ -n "$SUPABASE_URL" ] && [ -n "$SUPABASE_ANON_KEY" ]; then
-            echo "🏓 Pinging Supabase..."
+            echo "Pinging Supabase..."
             curl -sSf -o /dev/null -w "HTTP %{http_code} (%{time_total}s)\n" \
               -H "apikey: $SUPABASE_ANON_KEY" \
               "$SUPABASE_URL/rest/v1/vendors?select=id&limit=1" \
               || echo "supabase ping failed (continuing)"
           else
-            echo "⚠ SUPABASE_URL / SUPABASE_ANON_KEY secrets not set, skipping DB ping"
+            echo "SUPABASE_URL / SUPABASE_ANON_KEY secrets not set, skipping DB ping"
           fi
