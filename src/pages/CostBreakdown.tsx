@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useSearchParams, useNavigate } from 'react-router-dom'
 import { supabase } from '@/lib/supabase'
 import type { Product, Vendor, CostItem } from '@/lib/types'
@@ -899,6 +899,8 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
 }) {
   const [search, setSearch] = useState('')
   const [selectedId, setSelectedId] = useState<string>('')
+  // 드래그 추적용 — mousedown이 백드롭에서 시작한 경우에만 close 허용 (안쪽에서 드래그로 끌면 닫히지 않도록)
+  const mouseDownOnBackdropRef = useRef(false)
   if (!open || !currentProduct) return null
 
   // 추천: 같은 거래처 + 같은 코드 prefix (DD26SMTS-009- 같은 거)
@@ -907,18 +909,33 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
     p.vendor_id === currentProduct.vendor_id &&
     p.code && (p.code.startsWith(baseCode) || p.name === currentProduct.name)
   )
-  const others = candidates.filter(p => !sameDesign.includes(p))
-  const filtered = search
-    ? candidates.filter(p =>
-        (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
-        (p.code || '').toLowerCase().includes(search.toLowerCase())
-      )
-    : null
-  const list = filtered || [...sameDesign, ...others]
+  const sameDesignIds = new Set(sameDesign.map(p => p.id))
+  const others = candidates.filter(p => !sameDesignIds.has(p.id))
+  // 검색 중일 때도 "같은 디자인" 매칭을 상위로 올림
+  const list = search
+    ? candidates
+        .filter(p =>
+          (p.name || '').toLowerCase().includes(search.toLowerCase()) ||
+          (p.code || '').toLowerCase().includes(search.toLowerCase())
+        )
+        .sort((a, b) => {
+          const aSame = sameDesignIds.has(a.id) ? 0 : 1
+          const bSame = sameDesignIds.has(b.id) ? 0 : 1
+          return aSame - bSame
+        })
+    : [...sameDesign, ...others]
   const selected = candidates.find(p => p.id === selectedId)
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-zinc-900/40"
+      onMouseDown={e => { mouseDownOnBackdropRef.current = e.target === e.currentTarget }}
+      onClick={e => {
+        // 백드롭에서 mousedown 시작한 경우에만 close (내용 안에서 드래그로 끌어도 안 닫힘)
+        if (e.target === e.currentTarget && mouseDownOnBackdropRef.current) onClose()
+        mouseDownOnBackdropRef.current = false
+      }}
+    >
       <div className="bg-white rounded-2xl shadow-xl max-w-lg w-full max-h-[85vh] flex flex-col" onClick={e => e.stopPropagation()}>
         <div className="px-5 py-4 border-b border-zinc-100">
           <h2 className="text-[16px] font-semibold text-zinc-900">📋 원가 복사</h2>
@@ -936,9 +953,9 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
             <p className="text-[12px] text-zinc-400 text-center py-8">복사 가능한 상품이 없어요</p>
           ) : (
             <>
-              {!filtered && sameDesign.length > 0 && (
+              {sameDesign.length > 0 && (
                 <div className="mb-2 inline-flex items-center gap-2 px-2 py-1 rounded bg-emerald-50 text-emerald-800 text-[10px] border border-emerald-200">
-                  💡 같은 디자인 후보 {sameDesign.length}개 추천
+                  💡 같은 디자인 후보 {sameDesign.length}개 추천 {search ? '(검색 결과 상위에 표시됨)' : ''}
                 </div>
               )}
               <div className="space-y-1">
