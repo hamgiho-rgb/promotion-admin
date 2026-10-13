@@ -1,7 +1,7 @@
 name: Supabase Keep-Alive
 
 # Supabase 무료 플랜은 7일 미접속 시 프로젝트 자동 pause 됨.
-# 이 워크플로가 하루 3번(6시간마다) 사이트에 요청 보내서 DB 활동 유지.
+# 이 워크플로가 하루 3번(8시간마다) 사이트 + DB 에 요청 보내서 활동 유지.
 # 완전 무료 (GitHub Actions 무료 할당량 안에서 실행).
 
 on:
@@ -32,5 +32,4 @@ jobs:
               || echo "supabase ping failed (continuing)"
           else
             echo "⚠ SUPABASE_URL / SUPABASE_ANON_KEY secrets not set, skipping DB ping"
-            echo "→ Set them in GitHub → Settings → Secrets and variables → Actions"
           fi
