@@ -10,6 +10,14 @@ export default function InvoicePrint() {
   const [items, setItems] = useState<InvoiceItem[]>([])
   const [vendor, setVendor] = useState<Vendor | null>(null)
   const [loading, setLoading] = useState(true)
+  // 보기 모드: 'line' = 라인별(원본), 'product' = 품명별 묶음
+  const [viewMode, setViewMode] = useState<'line' | 'product'>(() => {
+    try { return (localStorage.getItem('invoice_print_view_mode') as any) || 'line' } catch { return 'line' }
+  })
+  function changeViewMode(m: 'line' | 'product') {
+    setViewMode(m)
+    try { localStorage.setItem('invoice_print_view_mode', m) } catch {}
+  }
 
   useEffect(() => { load() }, [id])
 
@@ -48,7 +56,23 @@ export default function InvoicePrint() {
         <button onClick={() => navigate('/invoices')} className="text-[13px] text-zinc-600 hover:text-zinc-900 flex items-center gap-1">
           ← 목록으로
         </button>
-        <div className="flex gap-2">
+        <div className="flex gap-2 items-center">
+          <div className="inline-flex rounded-lg border border-zinc-300 overflow-hidden bg-white">
+            <button
+              onClick={() => changeViewMode('line')}
+              className={`px-3 py-2 text-[12px] font-medium ${viewMode === 'line' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
+              title="원본 라인별 보기"
+            >
+              📄 라인별
+            </button>
+            <button
+              onClick={() => changeViewMode('product')}
+              className={`px-3 py-2 text-[12px] font-medium border-l border-zinc-300 ${viewMode === 'product' ? 'bg-emerald-600 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
+              title="같은 품명 묶어서 수량/금액 합산"
+            >
+              🧮 품명별 묶기
+            </button>
+          </div>
           <button
             onClick={() => window.print()}
             className="px-4 py-2 bg-zinc-900 text-white rounded-lg text-[13px] font-medium hover:bg-zinc-800"
@@ -110,8 +134,7 @@ export default function InvoicePrint() {
 
           {/* 거래 라인 표 */}
           {(() => {
-            // 컬럼: 날짜/칼라는 항상 표시 (비어있어도 컬럼은 유지 — 발행일로 대체)
-            // sizes JSON에서 모든 사이즈 키 수집 (사이즈별 컬럼 펼침)
+            // 사이즈 컬럼
             const sizeKeySet = new Set<string>()
             items.forEach(it => {
               const sz = (it as any).sizes as Record<string, number> | null
@@ -119,11 +142,9 @@ export default function InvoicePrint() {
             })
             const sizeKeys = Array.from(sizeKeySet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
             const showSizeColumns = sizeKeys.length > 0
-            // 단일 사이즈 필드 — 사이즈 컬럼 없고 어떤 라인이라도 size 있을 때만
             const showSingleSize = !showSizeColumns && items.some(it => ((it as any).size || '').toString().trim() !== '')
-            const totalCols = 1 /*날짜*/ + 1 /*품명*/ + 1 /*칼라*/ + (showSingleSize ? 1 : 0) + sizeKeys.length + 3
 
-            // 상품명 끝의 "(컬러)" 자동 추출 — color 필드가 비어있을 때 fallback
+            // 상품명 헬퍼
             function extractColor(it: any): string {
               if (it.color && it.color.trim()) return it.color.trim()
               const m = String(it.product_name || '').match(/\(([^()]+)\)\s*$/)
@@ -134,11 +155,59 @@ export default function InvoicePrint() {
               return String(it.product_name || '').replace(/\s*\(([^()]+)\)\s*$/, '').trim()
             }
 
+            // viewMode === 'product' 일 때 묶기 — 품명+칼라 기준
+            type GroupedLine = {
+              key: string
+              name: string
+              color: string
+              sizes: Record<string, number>
+              singleSizes: string[]
+              quantity: number
+              amount: number
+              unitPrices: Set<number>
+              hasReturn: boolean
+              lineCount: number
+            }
+            const grouped: GroupedLine[] = (() => {
+              const map = new Map<string, GroupedLine>()
+              items.forEach(it => {
+                const name = stripColorFromName(it)
+                const color = extractColor(it)
+                const key = `${name}||${color}`
+                let g = map.get(key)
+                if (!g) {
+                  g = {
+                    key, name, color,
+                    sizes: {}, singleSizes: [],
+                    quantity: 0, amount: 0,
+                    unitPrices: new Set<number>(),
+                    hasReturn: false, lineCount: 0,
+                  }
+                  map.set(key, g)
+                }
+                const itemSizes = ((it as any).sizes || {}) as Record<string, number>
+                Object.entries(itemSizes).forEach(([sz, n]) => {
+                  const num = Number(n) || 0
+                  g!.sizes[sz] = (g!.sizes[sz] || 0) + num
+                })
+                const sz = ((it as any).size || '').toString().trim()
+                if (sz && !g.singleSizes.includes(sz)) g.singleSizes.push(sz)
+                g.quantity += Number(it.quantity || 0) * (it.is_return ? -1 : 1)
+                g.amount += Number(it.amount || 0) * (it.is_return ? -1 : 1)
+                g.unitPrices.add(Number(it.unit_price || 0))
+                if (it.is_return) g.hasReturn = true
+                g.lineCount += 1
+              })
+              return Array.from(map.values()).sort((a, b) => a.name.localeCompare(b.name, 'ko'))
+            })()
+
+            const totalCols = 1 /*날짜*/ + 1 /*품명*/ + 1 /*칼라*/ + (showSingleSize ? 1 : 0) + sizeKeys.length + 3
+
             return (
               <table className="w-full text-[12px] border-2 border-zinc-800 mt-3">
                 <thead>
-                  <tr className="bg-zinc-100 border-b-2 border-zinc-800">
-                    <th className="px-2 py-2 border-r border-zinc-300 w-28">납품일</th>
+                  <tr className={`${viewMode === 'product' ? 'bg-emerald-50' : 'bg-zinc-100'} border-b-2 border-zinc-800`}>
+                    <th className="px-2 py-2 border-r border-zinc-300 w-28">{viewMode === 'product' ? '라인수' : '납품일'}</th>
                     <th className="px-2 py-2 border-r border-zinc-300">품명</th>
                     <th className="px-2 py-2 border-r border-zinc-300 w-20">칼라</th>
                     {showSingleSize && <th className="px-2 py-2 border-r border-zinc-300 w-12">사이즈</th>}
@@ -153,9 +222,8 @@ export default function InvoicePrint() {
                 <tbody>
                   {items.length === 0 ? (
                     <tr><td colSpan={totalCols} className="text-center py-6 text-zinc-400">등록된 거래 라인이 없습니다.</td></tr>
-                  ) : items.map(it => {
+                  ) : viewMode === 'line' ? items.map(it => {
                     const itemSizes = ((it as any).sizes || {}) as Record<string, number>
-                    // 날짜: line_date 있으면 사용, 없으면 계산서 발행일로 대체
                     const dateStr = (it.line_date || '').trim() || invoice.issue_date || ''
                     const colorStr = extractColor(it)
                     const nameStr = stripColorFromName(it)
@@ -182,11 +250,43 @@ export default function InvoicePrint() {
                         </td>
                       </tr>
                     )
+                  }) : grouped.map(g => {
+                    const unitPriceDisplay = g.unitPrices.size === 1
+                      ? Number([...g.unitPrices][0]).toLocaleString()
+                      : (g.quantity !== 0 ? Math.round(g.amount / g.quantity).toLocaleString() + '*' : '—')
+                    return (
+                      <tr key={g.key} className={`border-b border-zinc-200 ${g.hasReturn ? 'bg-rose-50/30' : ''}`}>
+                        <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums text-[11px]">
+                          {g.lineCount}건
+                        </td>
+                        <td className="px-2 py-1.5 border-r border-zinc-200">{g.name}</td>
+                        <td className="px-2 py-1.5 border-r border-zinc-200 text-center">{g.color || '—'}</td>
+                        {showSingleSize && <td className="px-2 py-1.5 border-r border-zinc-200 text-center tabular-nums text-[10px]">{g.singleSizes.join(',')}</td>}
+                        {sizeKeys.map(sz => {
+                          const n = Number(g.sizes[sz] || 0)
+                          return (
+                            <td key={sz} className={`px-1 py-1.5 border-r border-zinc-200 text-center tabular-nums ${n === 0 ? 'text-zinc-300' : ''}`}>
+                              {n > 0 ? n.toLocaleString() : '-'}
+                            </td>
+                          )
+                        })}
+                        <td className={`px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums font-medium ${g.hasReturn ? 'text-rose-700' : ''}`}>
+                          {g.quantity.toLocaleString()}
+                        </td>
+                        <td className="px-2 py-1.5 border-r border-zinc-200 text-right tabular-nums">{unitPriceDisplay}</td>
+                        <td className={`px-2 py-1.5 text-right tabular-nums font-medium ${g.hasReturn ? 'text-rose-700' : ''}`}>
+                          {g.amount.toLocaleString()}
+                        </td>
+                      </tr>
+                    )
                   })}
                 </tbody>
               </table>
             )
           })()}
+          {viewMode === 'product' && (
+            <p className="text-[10px] text-zinc-500 mt-1 print:hidden">* 단가에 *표시: 라인별로 단가가 달라서 평균값. 반품은 (-)로 수량/금액에 반영.</p>
+          )}
 
           {/* 하단: 계좌 + 합계 */}
           <div className="grid grid-cols-2 gap-6 mt-4">
