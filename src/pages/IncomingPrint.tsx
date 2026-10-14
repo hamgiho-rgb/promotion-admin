@@ -107,30 +107,38 @@ export default function IncomingPrint() {
     grandTotal += Number(it.total_quantity || 0)
   })
 
-  // 품번별 묶기 — 같은 품번+품명끼리 수량 합산, 박스 수와 날짜 목록 유지
+  // 품번별 묶기 — 품명 기준으로 묶음 (같은 품명이면 품번/사이즈 달라도 합산)
+  // 예: "에센셜 롱 슬리브 BLACK" 전체 사이즈 바코드를 하나로 묶어서 수량 합산
   type GroupedRow = {
     key: string
-    product_code: string
+    product_code: string      // 첫 변형 코드
+    codeVariants: number      // 서로 다른 품번 몇 개 묶였는지
     product_name: string
     sizes: Record<string, number>
     total: number
     cartonCount: number
-    dates: string[]  // 중복제거, 정렬
+    dates: string[]
+    _codeSet: Set<string>
   }
   const groupedRows: GroupedRow[] = (() => {
     const map = new Map<string, GroupedRow>()
     items.forEach(it => {
-      const key = `${it.product_code || ''}||${it.product_name || ''}`
+      const name = (it.product_name || '').trim()
+      const code = (it.product_code || '').trim()
+      // 품명이 있으면 품명으로, 없으면 품번으로 묶기
+      const key = name || code || '(미지정)'
       let row = map.get(key)
       if (!row) {
         row = {
           key,
-          product_code: it.product_code || '',
-          product_name: it.product_name || '',
+          product_code: code,
+          codeVariants: 0,
+          product_name: name,
           sizes: {},
           total: 0,
           cartonCount: 0,
           dates: [],
+          _codeSet: new Set<string>(),
         }
         map.set(key, row)
       }
@@ -140,13 +148,17 @@ export default function IncomingPrint() {
       })
       row.total += Number(it.total_quantity || 0)
       row.cartonCount += 1
+      if (code) row._codeSet.add(code)
       const d = (it.delivery_date || '').toString().trim()
       if (d && !row.dates.includes(d)) row.dates.push(d)
     })
-    // 날짜 정렬 + 품번 정렬
     const rows = Array.from(map.values())
-    rows.forEach(r => r.dates.sort())
-    rows.sort((a, b) => a.product_code.localeCompare(b.product_code))
+    rows.forEach(r => {
+      r.dates.sort()
+      r.codeVariants = r._codeSet.size
+    })
+    // 품명 가나다 순
+    rows.sort((a, b) => a.product_name.localeCompare(b.product_name, 'ko'))
     return rows
   })()
 
@@ -324,7 +336,12 @@ export default function IncomingPrint() {
                 <tr><td colSpan={3 + sizeColumns.length + 1} className="text-center py-6 text-zinc-400">입고 라인이 없습니다.</td></tr>
               ) : groupedRows.map(r => (
                 <tr key={r.key} className="border-b border-zinc-200">
-                  <td className="px-2 py-1 border-r border-zinc-200 font-mono text-[10px] whitespace-nowrap">{r.product_code}</td>
+                  <td className="px-2 py-1 border-r border-zinc-200 font-mono text-[10px] whitespace-nowrap">
+                    {r.product_code}
+                    {r.codeVariants > 1 && (
+                      <span className="ml-1 text-[9px] text-emerald-700 font-sans font-semibold">외 {r.codeVariants - 1}</span>
+                    )}
+                  </td>
                   <td className="px-2 py-1 border-r border-zinc-200">{r.product_name}</td>
                   <td className="px-2 py-1 border-r border-zinc-200 text-center tabular-nums">{r.cartonCount}</td>
                   {sizeColumns.map(sz => {
