@@ -1,10 +1,18 @@
 import { useRef, useState } from 'react'
 import * as XLSX from 'xlsx'
 import { supabase } from '@/lib/supabase'
-import { Button, Drawer, Badge, Empty } from '@/components/ui'
+import { Button, Drawer, Badge, Empty, Checkbox } from '@/components/ui'
 import { isAWIncomingFormat, parseAWWorkbook, type AWReceipt } from '@/lib/awImport'
 import { findVendorByFuzzyName } from '@/lib/vendorMatch'
 import type { Vendor } from '@/lib/types'
+
+// 미리보기 각 시트의 "이미 등록 여부" 상태
+type ReceiptStatus = {
+  existingIncomingId: string | null  // 같은 거래처+기간이 이미 있으면 id
+  existingLineCount: number           // 그 입고에 들어있는 기존 라인 수
+  newLineCount: number                 // 이번 파일에서 새로 추가될 라인 수 (중복 제외)
+  dupLineCount: number                 // 중복이라 스킵될 라인 수
+}
 
 /* ─────────────────────────────────────────────
  * 입고내역서 페이지에 박는 엑셀 일괄 등록 버튼
@@ -17,6 +25,60 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [importing, setImporting] = useState(false)
   const [result, setResult] = useState<{ ok: number; fail: number; errors: string[] } | null>(null)
+  const [statuses, setStatuses] = useState<ReceiptStatus[]>([])  // 시트별 중복 상태
+  const [selected, setSelected] = useState<boolean[]>([])         // 시트별 체크 여부
+  const [checkingDup, setCheckingDup] = useState(false)
+
+  // 미리보기 열릴 때 시트별로 "이미 있나?" 확인
+  async function checkDuplicates(parsed: AWReceipt[]) {
+    setCheckingDup(true)
+    try {
+      const { data: vendorsData } = await supabase.from('vendors').select('*').eq('vendor_type', 'customer')
+      const vendorsList = (vendorsData ?? []) as Vendor[]
+      const sizesKey = (s: Record<string, any> | null | undefined) => {
+        if (!s || typeof s !== 'object') return ''
+        return Object.keys(s).sort().map(k => `${k}:${Number((s as any)[k]) || 0}`).join('|')
+      }
+      const next: ReceiptStatus[] = []
+      for (const r of parsed) {
+        const vendor = findVendorByFuzzyName(r.vendor_name, vendorsList, 'customer')
+        if (!vendor) {
+          next.push({ existingIncomingId: null, existingLineCount: 0, newLineCount: r.items.length, dupLineCount: 0 })
+          continue
+        }
+        const { data: existingIncs } = await supabase.from('incoming')
+          .select('id').eq('vendor_id', vendor.id).eq('period', r.period || '')
+          .is('deleted_at', null).limit(1)
+        if (!existingIncs || existingIncs.length === 0) {
+          next.push({ existingIncomingId: null, existingLineCount: 0, newLineCount: r.items.length, dupLineCount: 0 })
+          continue
+        }
+        const incId = existingIncs[0].id
+        const { data: existingItems } = await supabase.from('incoming_items')
+          .select('delivery_date, product_code, carton_no, sizes').eq('incoming_id', incId)
+        const keys = new Set<string>()
+        ;(existingItems ?? []).forEach((it: any) => {
+          keys.add(`${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}__${sizesKey(it.sizes)}`)
+        })
+        let dup = 0
+        for (const it of r.items) {
+          const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}__${sizesKey(it.sizes)}`
+          if (keys.has(k)) dup++
+        }
+        next.push({
+          existingIncomingId: incId,
+          existingLineCount: existingItems?.length ?? 0,
+          newLineCount: r.items.length - dup,
+          dupLineCount: dup,
+        })
+      }
+      setStatuses(next)
+      // 기본 선택: 완전 중복(새 라인 0개)인 시트는 체크 해제, 나머지는 체크
+      setSelected(next.map(s => s.newLineCount > 0))
+    } finally {
+      setCheckingDup(false)
+    }
+  }
 
   function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0]
@@ -37,7 +99,11 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
         }
         setReceipts(parsed)
         setResult(null)
+        setStatuses([])
+        setSelected(parsed.map(() => true))
         setDrawerOpen(true)
+        // 비동기: DB에서 중복 체크
+        checkDuplicates(parsed)
       } catch (err: any) {
         alert('파일 읽기 오류: ' + err.message)
       }
@@ -48,8 +114,14 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
 
   async function doImport() {
     if (receipts.length === 0) return
-    const total = receipts.reduce((s, r) => s + r.items.length, 0)
-    if (!confirm(`${receipts.length}개 시트 / ${total}개 라인을 등록할까요?`)) return
+    // 체크된 시트만 import
+    const selectedReceipts = receipts.filter((_, i) => selected[i])
+    if (selectedReceipts.length === 0) {
+      alert('선택된 시트가 없어요.')
+      return
+    }
+    const total = selectedReceipts.reduce((s, r) => s + r.items.length, 0)
+    if (!confirm(`선택한 ${selectedReceipts.length}개 시트 / ${total}개 라인을 등록할까요?\n(중복은 자동 스킵)`)) return
 
     setImporting(true)
     setResult(null)
@@ -70,7 +142,7 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
       let mergedCount = 0  // 같은 거래처+기간 입고에 라인 추가한 건수
       let skippedCount = 0 // 이미 동일 라인 있어서 스킵한 건수
 
-      for (const receipt of receipts) {
+      for (const receipt of selectedReceipts) {
         let vendor = findVendorByFuzzyName(receipt.vendor_name, [...vendorsList, ...cachedNewVendors], 'customer')
         if (!vendor) {
           const { data: newV, error: cErr } = await supabase.from('vendors').insert({
@@ -168,7 +240,7 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
       setResult({ ok, fail, errors: errors.slice(0, 10) })
       if (ok > 0) onImported()
     } catch (err: any) {
-      setResult({ ok, fail: total - ok, errors: [err.message] })
+      setResult({ ok, fail: Math.max(0, total - ok), errors: [err.message] })
     } finally {
       setImporting(false)
     }
@@ -194,14 +266,14 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
         width="xl"
         footer={
           result ? (
-            <Button onClick={() => { setDrawerOpen(false); setReceipts([]); setResult(null) }}>닫기</Button>
+            <Button onClick={() => { setDrawerOpen(false); setReceipts([]); setResult(null); setStatuses([]); setSelected([]) }}>닫기</Button>
           ) : (
             <>
-              <Button variant="secondary" onClick={() => { setDrawerOpen(false); setReceipts([]) }}>취소</Button>
-              <Button onClick={doImport} disabled={importing}>
+              <Button variant="secondary" onClick={() => { setDrawerOpen(false); setReceipts([]); setStatuses([]); setSelected([]) }}>취소</Button>
+              <Button onClick={doImport} disabled={importing || selected.every(x => !x)}>
                 {importing
                   ? '등록 중…'
-                  : `${receipts.reduce((s, r) => s + r.items.length, 0)}건 일괄 등록`}
+                  : `선택한 ${selected.filter(x => x).length}개 시트 등록 (총 ${receipts.filter((_, i) => selected[i]).reduce((s, r) => s + r.items.length, 0)}건)`}
               </Button>
             </>
           )
@@ -214,16 +286,64 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
             <div className="mb-4 p-3 rounded-lg bg-emerald-50 border border-emerald-200 text-[12px] text-emerald-800">
               <strong>📦 AW 원본 양식 감지됨</strong> — {receipts.length}개 시트.
               거래처가 없으면 자동 생성. 품번이 기존 상품과 일치하면 자동 연결.
+              {checkingDup && <span className="ml-2 text-emerald-600">⏳ 중복 확인 중…</span>}
+            </div>
+
+            {/* 전체 선택 토글 */}
+            <div className="mb-2 flex items-center gap-3 px-1 text-[12px]">
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={selected.length > 0 && selected.every(x => x)}
+                  ref={el => { if (el) el.indeterminate = selected.some(x => x) && !selected.every(x => x) }}
+                  onChange={e => setSelected(selected.map(() => e.target.checked))}
+                  className="w-4 h-4"
+                />
+                <span className="text-zinc-700">전체 선택</span>
+              </label>
+              <span className="text-zinc-400">·</span>
+              <button
+                onClick={() => setSelected(statuses.map(s => (s?.newLineCount ?? 0) > 0))}
+                className="text-emerald-700 hover:underline"
+                disabled={statuses.length === 0}
+              >
+                새 내용 있는 것만
+              </button>
             </div>
 
             <div className="space-y-3">
-              {receipts.map((r, idx) => (
-                <details key={idx} className="border border-zinc-200 rounded-xl overflow-hidden group">
+              {receipts.map((r, idx) => {
+                const st = statuses[idx]
+                const isDupAll = st && st.existingIncomingId && st.newLineCount === 0
+                const isPartial = st && st.existingIncomingId && st.newLineCount > 0
+                return (
+                <details key={idx} className={`border rounded-xl overflow-hidden group ${isDupAll ? 'border-amber-200 bg-amber-50/30' : isPartial ? 'border-blue-200 bg-blue-50/20' : 'border-zinc-200'}`}>
                   <summary className="px-4 py-3 cursor-pointer hover:bg-zinc-50 flex items-center justify-between list-none">
                     <div className="flex items-center gap-3 flex-1 min-w-0">
+                      <input
+                        type="checkbox"
+                        checked={!!selected[idx]}
+                        onChange={e => {
+                          const next = [...selected]
+                          next[idx] = e.target.checked
+                          setSelected(next)
+                        }}
+                        onClick={e => e.stopPropagation()}
+                        className="w-4 h-4 flex-shrink-0"
+                      />
                       <span className="text-zinc-400 group-open:rotate-90 transition-transform inline-block">▶</span>
                       <span className="font-semibold text-[13px] text-zinc-900">{r.vendor_name}</span>
                       <Badge color="blue">{r.period || r.sheetName}</Badge>
+                      {isDupAll && (
+                        <span className="px-2 py-0.5 rounded bg-amber-100 text-amber-800 text-[10px] font-semibold border border-amber-300">
+                          🔁 이미 전부 등록됨
+                        </span>
+                      )}
+                      {isPartial && (
+                        <span className="px-2 py-0.5 rounded bg-blue-100 text-blue-800 text-[10px] font-semibold border border-blue-300">
+                          ➕ 기존 입고에 {st!.newLineCount}건 추가 (중복 {st!.dupLineCount}건 스킵)
+                        </span>
+                      )}
                       <span className="text-[11px] text-zinc-500">사이즈: {r.sizeLabels.join(', ')}</span>
                     </div>
                     <span className="text-[12px] text-zinc-700 font-medium tabular-nums">
@@ -264,7 +384,7 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
                     </table>
                   </div>
                 </details>
-              ))}
+              )})}
             </div>
 
             {result && (
