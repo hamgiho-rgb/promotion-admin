@@ -903,12 +903,40 @@ function CopyCostModal({ open, onClose, currentProduct, candidates, hasExisting,
   const mouseDownOnBackdropRef = useRef(false)
   if (!open || !currentProduct) return null
 
-  // 추천: 같은 거래처 + 같은 코드 prefix (DD26SMTS-009- 같은 거)
-  const baseCode = (currentProduct.code || '').replace(/-[A-Z]{2,3}$/, '')   // 끝의 컬러 코드 제거
-  const sameDesign = candidates.filter(p =>
-    p.vendor_id === currentProduct.vendor_id &&
-    p.code && (p.code.startsWith(baseCode) || p.name === currentProduct.name)
-  )
+  // 추천: 같은 거래처 + 유사한 품번/품명
+  // 품번 base 추출: 끝쪽의 컬러/옵션 꼬리표 (-XX, -XXX, -숫자, -한글) 다 제거
+  const normalize = (s: string) => s.replace(/\s+/g, '').toLowerCase()
+  const stripTail = (c: string) => c
+    .replace(/-[A-Za-z0-9가-힣]{1,4}$/, '')   // 마지막 꼬리표 1개 제거
+    .replace(/-[A-Za-z0-9가-힣]{1,4}$/, '')   // 혹시 2단계 꼬리표면 하나 더
+  const myCode = (currentProduct.code || '').trim()
+  const baseCode = stripTail(myCode) || myCode
+  const myName = (currentProduct.name || '').trim()
+  const myNameNorm = normalize(myName)
+  // 품명 앞 공통 토큰 (색/숫자 떼기용) — 공백/하이픈 기준 앞 2단어
+  const nameHead = myName.split(/[\s\-_/]+/).slice(0, 2).join(' ').trim()
+  const nameHeadNorm = normalize(nameHead)
+
+  const sameDesign = candidates.filter(p => {
+    if (p.id === currentProduct.id) return false
+    if (p.vendor_id !== currentProduct.vendor_id) return false
+    const pCode = (p.code || '').trim()
+    const pName = (p.name || '').trim()
+    // 1) 품번 base가 같거나 서로 포함
+    if (baseCode && pCode) {
+      const pBase = stripTail(pCode) || pCode
+      if (pBase === baseCode) return true
+      if (pCode.startsWith(baseCode) || baseCode.startsWith(pBase)) return true
+    }
+    // 2) 품명 완전 일치
+    if (myName && pName && normalize(pName) === myNameNorm) return true
+    // 3) 품명 앞 토큰(색상 제외한 디자인명) 일치
+    if (nameHeadNorm && nameHeadNorm.length >= 2) {
+      const pHead = pName.split(/[\s\-_/]+/).slice(0, 2).join(' ').trim()
+      if (normalize(pHead) === nameHeadNorm) return true
+    }
+    return false
+  })
   const sameDesignIds = new Set(sameDesign.map(p => p.id))
   const others = candidates.filter(p => !sameDesignIds.has(p.id))
   // 검색 중일 때도 "같은 디자인" 매칭을 상위로 올림
