@@ -45,6 +45,14 @@ export default function IncomingPrint() {
   const [vendor, setVendor] = useState<Vendor | null>(null)
   const [widths, setWidths] = useState(loadWidths())
   const [panelOpen, setPanelOpen] = useState(false)
+  // 보기 모드: 'carton' = 박스별(원본), 'product' = 품번별 묶어서 수량 합산
+  const [viewMode, setViewMode] = useState<'carton' | 'product'>(() => {
+    try { return (localStorage.getItem('incoming_print_view_mode') as any) || 'carton' } catch { return 'carton' }
+  })
+  function changeViewMode(m: 'carton' | 'product') {
+    setViewMode(m)
+    try { localStorage.setItem('incoming_print_view_mode', m) } catch {}
+  }
 
   function updateWidth(key: ColKey, delta: number) {
     const next = { ...widths, [key]: Math.max(20, widths[key] + delta) }
@@ -99,6 +107,49 @@ export default function IncomingPrint() {
     grandTotal += Number(it.total_quantity || 0)
   })
 
+  // 품번별 묶기 — 같은 품번+품명끼리 수량 합산, 박스 수와 날짜 목록 유지
+  type GroupedRow = {
+    key: string
+    product_code: string
+    product_name: string
+    sizes: Record<string, number>
+    total: number
+    cartonCount: number
+    dates: string[]  // 중복제거, 정렬
+  }
+  const groupedRows: GroupedRow[] = (() => {
+    const map = new Map<string, GroupedRow>()
+    items.forEach(it => {
+      const key = `${it.product_code || ''}||${it.product_name || ''}`
+      let row = map.get(key)
+      if (!row) {
+        row = {
+          key,
+          product_code: it.product_code || '',
+          product_name: it.product_name || '',
+          sizes: {},
+          total: 0,
+          cartonCount: 0,
+          dates: [],
+        }
+        map.set(key, row)
+      }
+      Object.entries(it.sizes || {}).forEach(([sz, n]) => {
+        const num = Number(n) || 0
+        row!.sizes[sz] = (row!.sizes[sz] || 0) + num
+      })
+      row.total += Number(it.total_quantity || 0)
+      row.cartonCount += 1
+      const d = (it.delivery_date || '').toString().trim()
+      if (d && !row.dates.includes(d)) row.dates.push(d)
+    })
+    // 날짜 정렬 + 품번 정렬
+    const rows = Array.from(map.values())
+    rows.forEach(r => r.dates.sort())
+    rows.sort((a, b) => a.product_code.localeCompare(b.product_code))
+    return rows
+  })()
+
   return (
     <div className="bg-zinc-100 min-h-screen py-8 print:bg-white print:py-0">
       {/* 인쇄 가로 모드 (사이즈 컬럼 많을 때 자리 더 넓게) */}
@@ -113,7 +164,24 @@ export default function IncomingPrint() {
           <button onClick={() => navigate('/incoming')} className="text-[13px] text-zinc-600 hover:text-zinc-900 flex items-center gap-1">
             ← 목록으로
           </button>
-          <div className="flex gap-2">
+          <div className="flex gap-2 items-center">
+            {/* 보기 모드 토글 */}
+            <div className="inline-flex rounded-lg border border-zinc-300 overflow-hidden bg-white">
+              <button
+                onClick={() => changeViewMode('carton')}
+                className={`px-3 py-2 text-[12px] font-medium ${viewMode === 'carton' ? 'bg-zinc-900 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                title="박스 하나하나 그대로 보기"
+              >
+                📦 박스별
+              </button>
+              <button
+                onClick={() => changeViewMode('product')}
+                className={`px-3 py-2 text-[12px] font-medium border-l border-zinc-300 ${viewMode === 'product' ? 'bg-emerald-600 text-white' : 'text-zinc-600 hover:bg-zinc-50'}`}
+                title="같은 품번 묶어서 수량 합산"
+              >
+                🧮 품번별 묶기
+              </button>
+            </div>
             <button
               onClick={() => setPanelOpen(p => !p)}
               className={`px-3 py-2 rounded-lg text-[13px] font-medium border ${panelOpen ? 'bg-blue-100 border-blue-300 text-blue-800' : 'bg-white border-zinc-300 text-zinc-700 hover:bg-zinc-50'}`}
@@ -174,67 +242,128 @@ export default function IncomingPrint() {
         )}
 
         {/* 표 — 컬럼 너비는 widths 상태로 제어 (사용자 조절 가능) */}
-        <table className="w-full text-[11px] border-2 border-zinc-800" style={{ tableLayout: 'fixed' }}>
-          <colgroup>
-            <col style={{ width: widths.date + 'px' }} />
-            <col style={{ width: widths.ct + 'px' }} />
-            <col style={{ width: widths.code + 'px' }} />
-            <col />
-            {sizeColumns.map(sz => <col key={sz} style={{ width: widths.size + 'px' }} />)}
-            <col style={{ width: widths.total + 'px' }} />
-          </colgroup>
-          <thead>
-            <tr className="bg-zinc-100 border-b-2 border-zinc-800">
-              <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">날짜</th>
-              <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">C/T</th>
-              <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">품번</th>
-              <th className="px-2 py-2 border-r border-zinc-300">품명</th>
-              {sizeColumns.map(sz => (
-                <th key={sz} className="px-1 py-2 border-r border-zinc-300 tabular-nums whitespace-nowrap">{sz}</th>
-              ))}
-              <th className="px-2 py-2 bg-zinc-200 whitespace-nowrap">합계</th>
-            </tr>
-          </thead>
-          <tbody>
-            {items.length === 0 ? (
-              <tr><td colSpan={4 + sizeColumns.length + 1} className="text-center py-6 text-zinc-400">입고 라인이 없습니다.</td></tr>
-            ) : items.map(it => (
-              <tr key={it.id} className="border-b border-zinc-200">
-                <td className="px-2 py-1 border-r border-zinc-200 text-center tabular-nums whitespace-nowrap">{it.delivery_date || ''}</td>
-                <td className="px-2 py-1 border-r border-zinc-200 text-center tabular-nums">{it.carton_no || ''}</td>
-                <td className="px-2 py-1 border-r border-zinc-200 font-mono text-[10px] whitespace-nowrap">{it.product_code || ''}</td>
-                <td className="px-2 py-1 border-r border-zinc-200">{it.product_name || ''}</td>
-                {sizeColumns.map(sz => {
-                  const n = Number((it.sizes as any)?.[sz] || 0)
-                  return (
-                    <td key={sz} className={`px-1 py-1 border-r border-zinc-200 text-right tabular-nums ${n === 0 ? 'text-zinc-300' : ''}`}>
-                      {n > 0 ? n : ''}
-                    </td>
-                  )
-                })}
-                <td className="px-2 py-1 text-right tabular-nums font-medium bg-zinc-50 whitespace-nowrap">{Number(it.total_quantity).toLocaleString()}</td>
-              </tr>
-            ))}
-            {/* 합계 행 */}
-            {items.length > 0 && (
-              <tr className="bg-zinc-100 border-t-2 border-zinc-800 font-bold">
-                <td colSpan={4} className="px-2 py-2 text-center">합 계</td>
+        {viewMode === 'carton' ? (
+          <table className="w-full text-[11px] border-2 border-zinc-800" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: widths.date + 'px' }} />
+              <col style={{ width: widths.ct + 'px' }} />
+              <col style={{ width: widths.code + 'px' }} />
+              <col />
+              {sizeColumns.map(sz => <col key={sz} style={{ width: widths.size + 'px' }} />)}
+              <col style={{ width: widths.total + 'px' }} />
+            </colgroup>
+            <thead>
+              <tr className="bg-zinc-100 border-b-2 border-zinc-800">
+                <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">날짜</th>
+                <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">C/T</th>
+                <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">품번</th>
+                <th className="px-2 py-2 border-r border-zinc-300">품명</th>
                 {sizeColumns.map(sz => (
-                  <td key={sz} className="px-1 py-2 border-l border-zinc-300 text-right tabular-nums">
-                    {sizeTotals[sz] > 0 ? sizeTotals[sz].toLocaleString() : ''}
-                  </td>
+                  <th key={sz} className="px-1 py-2 border-r border-zinc-300 tabular-nums whitespace-nowrap">{sz}</th>
                 ))}
-                <td className="px-2 py-2 text-right tabular-nums bg-zinc-200 whitespace-nowrap">{grandTotal.toLocaleString()}</td>
+                <th className="px-2 py-2 bg-zinc-200 whitespace-nowrap">합계</th>
               </tr>
-            )}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {items.length === 0 ? (
+                <tr><td colSpan={4 + sizeColumns.length + 1} className="text-center py-6 text-zinc-400">입고 라인이 없습니다.</td></tr>
+              ) : items.map(it => (
+                <tr key={it.id} className="border-b border-zinc-200">
+                  <td className="px-2 py-1 border-r border-zinc-200 text-center tabular-nums whitespace-nowrap">{it.delivery_date || ''}</td>
+                  <td className="px-2 py-1 border-r border-zinc-200 text-center tabular-nums">{it.carton_no || ''}</td>
+                  <td className="px-2 py-1 border-r border-zinc-200 font-mono text-[10px] whitespace-nowrap">{it.product_code || ''}</td>
+                  <td className="px-2 py-1 border-r border-zinc-200">{it.product_name || ''}</td>
+                  {sizeColumns.map(sz => {
+                    const n = Number((it.sizes as any)?.[sz] || 0)
+                    return (
+                      <td key={sz} className={`px-1 py-1 border-r border-zinc-200 text-right tabular-nums ${n === 0 ? 'text-zinc-300' : ''}`}>
+                        {n > 0 ? n : ''}
+                      </td>
+                    )
+                  })}
+                  <td className="px-2 py-1 text-right tabular-nums font-medium bg-zinc-50 whitespace-nowrap">{Number(it.total_quantity).toLocaleString()}</td>
+                </tr>
+              ))}
+              {/* 합계 행 */}
+              {items.length > 0 && (
+                <tr className="bg-zinc-100 border-t-2 border-zinc-800 font-bold">
+                  <td colSpan={4} className="px-2 py-2 text-center">합 계</td>
+                  {sizeColumns.map(sz => (
+                    <td key={sz} className="px-1 py-2 border-l border-zinc-300 text-right tabular-nums">
+                      {sizeTotals[sz] > 0 ? sizeTotals[sz].toLocaleString() : ''}
+                    </td>
+                  ))}
+                  <td className="px-2 py-2 text-right tabular-nums bg-zinc-200 whitespace-nowrap">{grandTotal.toLocaleString()}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        ) : (
+          /* 품번별 묶기 모드 */
+          <table className="w-full text-[11px] border-2 border-zinc-800" style={{ tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: widths.code + 'px' }} />
+              <col />
+              <col style={{ width: widths.ct + 20 + 'px' }} />
+              {sizeColumns.map(sz => <col key={sz} style={{ width: widths.size + 'px' }} />)}
+              <col style={{ width: widths.total + 'px' }} />
+            </colgroup>
+            <thead>
+              <tr className="bg-emerald-50 border-b-2 border-zinc-800">
+                <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">품번</th>
+                <th className="px-2 py-2 border-r border-zinc-300">품명</th>
+                <th className="px-2 py-2 border-r border-zinc-300 whitespace-nowrap">박스수</th>
+                {sizeColumns.map(sz => (
+                  <th key={sz} className="px-1 py-2 border-r border-zinc-300 tabular-nums whitespace-nowrap">{sz}</th>
+                ))}
+                <th className="px-2 py-2 bg-emerald-100 whitespace-nowrap">합계</th>
+              </tr>
+            </thead>
+            <tbody>
+              {groupedRows.length === 0 ? (
+                <tr><td colSpan={3 + sizeColumns.length + 1} className="text-center py-6 text-zinc-400">입고 라인이 없습니다.</td></tr>
+              ) : groupedRows.map(r => (
+                <tr key={r.key} className="border-b border-zinc-200">
+                  <td className="px-2 py-1 border-r border-zinc-200 font-mono text-[10px] whitespace-nowrap">{r.product_code}</td>
+                  <td className="px-2 py-1 border-r border-zinc-200">{r.product_name}</td>
+                  <td className="px-2 py-1 border-r border-zinc-200 text-center tabular-nums">{r.cartonCount}</td>
+                  {sizeColumns.map(sz => {
+                    const n = Number(r.sizes[sz] || 0)
+                    return (
+                      <td key={sz} className={`px-1 py-1 border-r border-zinc-200 text-right tabular-nums ${n === 0 ? 'text-zinc-300' : ''}`}>
+                        {n > 0 ? n.toLocaleString() : ''}
+                      </td>
+                    )
+                  })}
+                  <td className="px-2 py-1 text-right tabular-nums font-medium bg-emerald-50 whitespace-nowrap">{r.total.toLocaleString()}</td>
+                </tr>
+              ))}
+              {/* 합계 행 */}
+              {groupedRows.length > 0 && (
+                <tr className="bg-emerald-50 border-t-2 border-zinc-800 font-bold">
+                  <td colSpan={2} className="px-2 py-2 text-center">합 계</td>
+                  <td className="px-2 py-2 border-l border-zinc-300 text-center tabular-nums">{items.length}</td>
+                  {sizeColumns.map(sz => (
+                    <td key={sz} className="px-1 py-2 border-l border-zinc-300 text-right tabular-nums">
+                      {sizeTotals[sz] > 0 ? sizeTotals[sz].toLocaleString() : ''}
+                    </td>
+                  ))}
+                  <td className="px-2 py-2 text-right tabular-nums bg-emerald-100 whitespace-nowrap">{grandTotal.toLocaleString()}</td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        )}
 
         {/* 풋터 */}
-        <div className="grid grid-cols-2 gap-6 mt-6 text-[11px]">
+        <div className="grid grid-cols-3 gap-6 mt-6 text-[11px]">
           <div className="border border-zinc-300 px-3 py-2">
             <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1">총 박스 수</div>
             <div className="text-[14px] font-bold tabular-nums">{items.length} 박스</div>
+          </div>
+          <div className="border border-zinc-300 px-3 py-2">
+            <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1">품번 종류</div>
+            <div className="text-[14px] font-bold tabular-nums">{groupedRows.length} 품번</div>
           </div>
           <div className="border border-zinc-300 px-3 py-2">
             <div className="text-[10px] uppercase tracking-wider text-zinc-500 font-semibold mb-1">총 입고 수량</div>
