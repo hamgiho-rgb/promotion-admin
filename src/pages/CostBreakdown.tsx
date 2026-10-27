@@ -7,7 +7,7 @@ import SupplierPicker from '@/components/SupplierPicker'
 import CustomerPicker from '@/components/CustomerPicker'
 import VendorSearchSelect from '@/components/VendorSearchSelect'
 import CostImportButton from '@/components/CostImportButton'
-import { exportSheet } from '@/lib/exportXlsx'
+import { exportSheet, exportMultiSheet } from '@/lib/exportXlsx'
 
 export default function CostBreakdown() {
   const navigate = useNavigate()
@@ -184,6 +184,32 @@ export default function CostBreakdown() {
       sort_order: targetOrder,
     })
     if (error) return alert('삽입 실패: ' + error.message)
+    loadItems(selectedId)
+  }
+
+  /** 공급처 그룹 위/아래에 새 그룹(빈 항목, 공급처 미지정)으로 삽입 */
+  async function insertGroupAt(dir: 'above' | 'below', refItemId: string) {
+    if (!selectedId) return
+    const ref = items.find(i => i.id === refItemId)
+    if (!ref) return
+    const refOrder = Number(ref.sort_order || 0)
+    const cutoff = dir === 'above' ? refOrder : refOrder + 1
+    // cutoff 이상 모두 +1
+    const toShift = items
+      .filter(i => Number(i.sort_order || 0) >= cutoff)
+      .sort((a, b) => Number(b.sort_order || 0) - Number(a.sort_order || 0))
+    for (const it of toShift) {
+      await supabase.from('cost_items').update({ sort_order: Number(it.sort_order || 0) + 1 }).eq('id', it.id)
+    }
+    const { error } = await supabase.from('cost_items').insert({
+      product_id: selectedId,
+      supplier_id: null,   // 공급처 미지정 — 사용자가 고르면 새 그룹 생성됨
+      item_name: '',
+      unit_price: 0,
+      yards: 0,
+      sort_order: cutoff,
+    })
+    if (error) return alert('그룹 삽입 실패: ' + error.message)
     loadItems(selectedId)
   }
 
@@ -440,6 +466,89 @@ export default function CostBreakdown() {
     exportSheet(rows, '원가내역서', `원가내역서_${safeCode}`)
   }
 
+  /** 특정 거래처의 모든 상품 원가내역을 한 엑셀로 (상품마다 1시트) */
+  async function exportVendorAllToExcel(vendorId: string, vendorNameLabel: string) {
+    const vendorProducts = products.filter(p => p.vendor_id === vendorId)
+    if (vendorProducts.length === 0) {
+      alert('이 거래처에 상품이 없어요.')
+      return
+    }
+    if (!confirm(`${vendorNameLabel} — 상품 ${vendorProducts.length}개의 원가내역을 모두 다운로드할까요?`)) return
+    // 전체 cost_items를 한 번에 읽어와 품별로 분배 (상품 수 많아도 쿼리 1번)
+    const productIds = vendorProducts.map(p => p.id)
+    const { data: allItems, error } = await supabase.from('cost_items')
+      .select('*').in('product_id', productIds).order('sort_order')
+    if (error) return alert('원가 조회 실패: ' + error.message)
+    const itemsByProduct = new Map<string, any[]>()
+    ;(allItems ?? []).forEach(it => {
+      const arr = itemsByProduct.get(it.product_id) || []
+      arr.push(it); itemsByProduct.set(it.product_id, arr)
+    })
+
+    // 요약 시트 + 상품별 시트들
+    const summaryRows: any[][] = []
+    summaryRows.push([`${vendorNameLabel} — 원가내역 전체`])
+    summaryRows.push([])
+    summaryRows.push(['품번', '품목명', '컬러', '브랜드', '판매가', '원가합계', '마진', '마진율(%)'])
+    const sheets: { name: string; rows: any[][] }[] = []
+    const usedSheetNames = new Set<string>()
+    // 시트명 중복 처리 (엑셀 시트명 31자 제한)
+    function makeSheetName(code: string, color: string | null) {
+      const base = `${code}${color ? '_' + color : ''}`.replace(/[\\/:*?"\[\]]/g, '_').slice(0, 28)
+      let name = base; let n = 2
+      while (usedSheetNames.has(name)) { name = `${base.slice(0, 25)}_${n++}` }
+      usedSheetNames.add(name); return name
+    }
+
+    // 품번 정렬
+    const sorted = [...vendorProducts].sort((a, b) => (a.code || '').localeCompare(b.code || ''))
+    for (const p of sorted) {
+      const its = itemsByProduct.get(p.id) || []
+      const sellingPrice = Number(p.selling_price || 0)
+      const totalCost = its.reduce((s, i) => s + Number(i.subtotal || 0), 0)
+      const marginVal = sellingPrice - totalCost
+      const marginPct = sellingPrice ? (marginVal / sellingPrice) * 100 : 0
+      const markupPct = totalCost > 0 ? (marginVal / totalCost) * 100 : 0
+
+      summaryRows.push([
+        p.code, p.name, p.color || '', p.brand || '',
+        sellingPrice, Math.round(totalCost), Math.round(marginVal),
+        sellingPrice ? Number(marginPct.toFixed(1)) : '',
+      ])
+
+      // 개별 상품 시트
+      const rows: any[][] = []
+      rows.push(['원가내역서'])
+      rows.push([])
+      rows.push(['거래처', vendorNameLabel, '품번', p.code])
+      rows.push(['품목명', p.name, '컬러', p.color || ''])
+      rows.push(['브랜드', p.brand || '', '판매가', sellingPrice])
+      rows.push([])
+      rows.push(['공급처', '재료/공정', '단가', '요척', '소계'])
+      for (const it of its) {
+        const supplierName = suppliers.find(s => s.id === it.supplier_id)?.name || '미지정'
+        rows.push([supplierName, it.item_name || '', Number(it.unit_price || 0), Number(it.yards || 0), Math.round(Number(it.subtotal || 0))])
+      }
+      rows.push([])
+      rows.push(['', '', '', '생산원가 합계', Math.round(totalCost)])
+      rows.push(['', '', '', '판매가', sellingPrice])
+      rows.push(['', '', '', '마진', Math.round(marginVal)])
+      rows.push(['', '', '', '마진율 (판매가 대비)', `${marginPct.toFixed(1)}%`])
+      rows.push(['', '', '', '마크업 (원가 대비)', `${markupPct.toFixed(1)}%`])
+
+      sheets.push({ name: makeSheetName(p.code || 'product', p.color), rows })
+    }
+
+    // 합계 행
+    const grandCost = sorted.reduce((s, p) => s + (itemsByProduct.get(p.id) || []).reduce((ss, i) => ss + Number(i.subtotal || 0), 0), 0)
+    const grandPrice = sorted.reduce((s, p) => s + Number(p.selling_price || 0), 0)
+    summaryRows.push([])
+    summaryRows.push(['합계', '', '', '', grandPrice, Math.round(grandCost), Math.round(grandPrice - grandCost), ''])
+
+    const safeName = vendorNameLabel.replace(/[\\/:*?"<>|]/g, '_')
+    exportMultiSheet([{ name: '요약', rows: summaryRows }, ...sheets], `원가내역_${safeName}`)
+  }
+
   const filteredProducts = products.filter(p =>
     !productSearch ||
     p.name.toLowerCase().includes(productSearch.toLowerCase()) ||
@@ -600,6 +709,19 @@ export default function CostBreakdown() {
                           </div>
                           <span className="text-[10px] tabular-nums text-white/60 flex-shrink-0">{vendorTotal}</span>
                         </button>
+                        {/* 이 거래처 전체 원가내역 다운로드 */}
+                        {(() => {
+                          const vId = customers.find(c => c.name === vName)?.id
+                          if (!vId) return null
+                          return (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); exportVendorAllToExcel(vId, vName) }}
+                              className="flex-shrink-0 px-1.5 py-0.5 rounded bg-violet-500/80 hover:bg-violet-500 text-white text-[10px] font-medium"
+                              title={`${vName} 전체 상품 원가내역 엑셀 다운로드`}
+                            >📥 전체</button>
+                          )
+                        })()}
                       </div>
                       {/* 브랜드별 상품 — 거래처 펼침 상태일 때만 */}
                       {!vendorCollapsed && brandKeys.map(bName => {
@@ -791,9 +913,24 @@ export default function CostBreakdown() {
                             )}
                             <span className="text-[11px] text-zinc-500">{group.items.length}건</span>
                           </div>
-                          <span className="text-[12px] tabular-nums">
-                            소계 <span className="font-semibold">₩{Math.round(groupTotal).toLocaleString()}</span>
-                          </span>
+                          <div className="flex items-center gap-2 flex-wrap">
+                            {/* 그룹 사이에 새 공급처 삽입 */}
+                            <div className="flex gap-1">
+                              <button
+                                onClick={() => insertGroupAt('above', group.items[0].id)}
+                                className="px-2 py-1 rounded text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-medium"
+                                title="이 그룹 위에 다른 공급처 새 항목 추가"
+                              >＋위에 다른 공급처</button>
+                              <button
+                                onClick={() => insertGroupAt('below', group.items[group.items.length - 1].id)}
+                                className="px-2 py-1 rounded text-[10px] bg-indigo-50 hover:bg-indigo-100 text-indigo-700 border border-indigo-200 font-medium"
+                                title="이 그룹 아래에 다른 공급처 새 항목 추가"
+                              >＋아래에 다른 공급처</button>
+                            </div>
+                            <span className="text-[12px] tabular-nums">
+                              소계 <span className="font-semibold">₩{Math.round(groupTotal).toLocaleString()}</span>
+                            </span>
+                          </div>
                         </div>
 
                         {/* 재료 라인들 */}
