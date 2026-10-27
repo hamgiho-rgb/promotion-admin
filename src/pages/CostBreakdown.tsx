@@ -161,6 +161,57 @@ export default function CostBreakdown() {
     loadItems(selectedId)
   }
 
+  /** 특정 행 위에 새 항목 삽입 — 공급처는 같은 그룹으로 자동 지정 */
+  async function insertItemAbove(targetItemId: string) {
+    if (!selectedId) return
+    const target = items.find(i => i.id === targetItemId)
+    if (!target) return
+    const targetOrder = Number(target.sort_order || 0)
+    // 1) targetOrder 이상인 모든 항목의 sort_order 를 +1
+    const toShift = items
+      .filter(i => Number(i.sort_order || 0) >= targetOrder)
+      .sort((a, b) => Number(b.sort_order || 0) - Number(a.sort_order || 0)) // 큰 것부터
+    for (const it of toShift) {
+      await supabase.from('cost_items').update({ sort_order: Number(it.sort_order || 0) + 1 }).eq('id', it.id)
+    }
+    // 2) target 위치에 새 항목 insert
+    const { error } = await supabase.from('cost_items').insert({
+      product_id: selectedId,
+      supplier_id: target.supplier_id || null,
+      item_name: '',
+      unit_price: 0,
+      yards: 0,
+      sort_order: targetOrder,
+    })
+    if (error) return alert('삽입 실패: ' + error.message)
+    loadItems(selectedId)
+  }
+
+  /** 특정 행 아래에 새 항목 삽입 */
+  async function insertItemBelow(targetItemId: string) {
+    if (!selectedId) return
+    const target = items.find(i => i.id === targetItemId)
+    if (!target) return
+    const targetOrder = Number(target.sort_order || 0)
+    // targetOrder 보다 큰 것들만 +1
+    const toShift = items
+      .filter(i => Number(i.sort_order || 0) > targetOrder)
+      .sort((a, b) => Number(b.sort_order || 0) - Number(a.sort_order || 0))
+    for (const it of toShift) {
+      await supabase.from('cost_items').update({ sort_order: Number(it.sort_order || 0) + 1 }).eq('id', it.id)
+    }
+    const { error } = await supabase.from('cost_items').insert({
+      product_id: selectedId,
+      supplier_id: target.supplier_id || null,
+      item_name: '',
+      unit_price: 0,
+      yards: 0,
+      sort_order: targetOrder + 1,
+    })
+    if (error) return alert('삽입 실패: ' + error.message)
+    loadItems(selectedId)
+  }
+
   async function updateItem(id: string, patch: Partial<CostItem>) {
     const { error } = await supabase.from('cost_items').update(patch).eq('id', id)
     if (error) return alert('수정 실패: ' + error.message)
@@ -756,7 +807,7 @@ export default function CostBreakdown() {
                                 <th className="px-3 py-2 text-right w-36">단가</th>
                                 <th className="px-3 py-2 text-right w-28">요척</th>
                                 <th className="px-3 py-2 text-right w-32">소계</th>
-                                <th className="px-3 py-2 w-10"></th>
+                                <th className="px-3 py-2 w-14"></th>
                               </tr>
                             </thead>
                             <tbody>
@@ -816,7 +867,19 @@ export default function CostBreakdown() {
                                     ₩{Math.round(Number(item.subtotal) || 0).toLocaleString()}
                                   </td>
                                   <td className="px-1 py-1.5 text-center">
-                                    <button onClick={() => deleteItem(item.id)} className="text-rose-500 hover:text-rose-700 text-lg w-8 h-8">×</button>
+                                    <div className="flex flex-col items-center gap-0.5">
+                                      <button
+                                        onClick={() => insertItemAbove(item.id)}
+                                        className="w-7 h-5 rounded text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 leading-none"
+                                        title="이 행 위에 새 항목 추가"
+                                      >＋위</button>
+                                      <button
+                                        onClick={() => insertItemBelow(item.id)}
+                                        className="w-7 h-5 rounded text-[10px] bg-emerald-50 hover:bg-emerald-100 text-emerald-700 border border-emerald-200 leading-none"
+                                        title="이 행 아래에 새 항목 추가"
+                                      >＋아래</button>
+                                      <button onClick={() => deleteItem(item.id)} className="text-rose-500 hover:text-rose-700 text-base w-7 h-6 leading-none" title="삭제">×</button>
+                                    </div>
                                   </td>
                                 </tr>
                               ))}
