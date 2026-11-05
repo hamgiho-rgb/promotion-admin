@@ -30,6 +30,110 @@ function isSummaryItem(it: { product_code?: string | null; product_name?: string
  return false
 }
 
+/** 품번 꼬리표 제거 — 바코드의 사이즈/옵션 꼬리표 떼기 (BK00L → BK00 → BK) */
+function stripCodeTail(code: string): string[] {
+  const results: string[] = []
+  let cur = (code || '').trim()
+  if (!cur) return results
+  results.push(cur)
+  // 반복적으로 꼬리 1-4자(영문/숫자/한글) 제거
+  for (let i = 0; i < 4; i++) {
+    // 끝의 1-4 글자 그룹
+    const stripped = cur.replace(/[-_ ]?[A-Za-z0-9가-힣]{1,4}$/, '')
+    if (stripped === cur || stripped.length < 3) break
+    results.push(stripped)
+    cur = stripped
+  }
+  return results
+}
+
+/** 품명 정규화 — 공백/특수문자 제거, 소문자 */
+function normalizeName(s: string): string {
+  return (s || '').toLowerCase().replace(/\s+/g, '').replace(/[-_()[\]]/g, '')
+}
+
+/** 입고 라인 → 등록된 상품 매칭 (여러 전략) */
+export function findMatchingProduct(
+  it: { product_id?: string | null; product_code?: string | null; product_name?: string | null },
+  byId: Map<string, any>,
+  byCodeLower: Map<string, any>,
+  byNameLower: Map<string, any>,
+  byCodeStripped: Map<string, any>,
+  byNameNormalized: Map<string, any>,
+  productsList: any[],
+): any | null {
+  // 1) product_id 직접 매칭
+  if (it.product_id) {
+    const p = byId.get(it.product_id)
+    if (p) return p
+  }
+  // 2) 품번 정확히 (소문자)
+  const rawCode = (it.product_code || '').toString().trim().toLowerCase()
+  if (rawCode && byCodeLower.has(rawCode)) return byCodeLower.get(rawCode)
+  // 3) 품명 정확히 (소문자)
+  const rawName = (it.product_name || '').toString().trim().toLowerCase()
+  if (rawName && byNameLower.has(rawName)) return byNameLower.get(rawName)
+  // 4) 품번 꼬리표 제거 — BK00L → BK00 → BK
+  if (rawCode) {
+    const candidates = stripCodeTail(rawCode)
+    for (const c of candidates) {
+      const hit = byCodeStripped.get(c)
+      if (hit) return hit
+    }
+  }
+  // 5) 품명 정규화 매칭 (공백/괄호 제거)
+  const normName = normalizeName(it.product_name || '')
+  if (normName) {
+    const hit = byNameNormalized.get(normName)
+    if (hit) return hit
+  }
+  // 6) 품명이 "상품명 + 컬러" 형태인 경우 — 등록 상품명으로 끝나는지
+  if (normName) {
+    for (const p of productsList) {
+      const pName = normalizeName(p.name || '')
+      if (!pName) continue
+      // 입고 품명이 등록 품명을 포함하거나, 등록 품명이 입고 품명을 포함
+      if (normName.includes(pName) && pName.length >= 3) return p
+      if (pName.includes(normName) && normName.length >= 3) return p
+    }
+  }
+  // 7) 품번이 등록 품번을 prefix 로 포함
+  if (rawCode) {
+    for (const p of productsList) {
+      const pCode = (p.code || '').toString().trim().toLowerCase()
+      if (!pCode || pCode.length < 3) continue
+      if (rawCode.startsWith(pCode)) return p
+      if (pCode.startsWith(rawCode) && rawCode.length >= 4) return p
+    }
+  }
+  return null
+}
+
+/** 상품 카탈로그를 매칭용 Map 묶음으로 변환 */
+export function buildProductIndex(prods: any[]) {
+  const byId = new Map<string, any>()
+  const byCodeLower = new Map<string, any>()
+  const byNameLower = new Map<string, any>()
+  const byCodeStripped = new Map<string, any>()
+  const byNameNormalized = new Map<string, any>()
+  ;(prods ?? []).forEach((p: any) => {
+    byId.set(p.id, p)
+    if (p.code) {
+      const c = String(p.code).trim().toLowerCase()
+      byCodeLower.set(c, p)
+      // stripped prefixes 도 등록
+      stripCodeTail(c).forEach(cc => {
+        if (!byCodeStripped.has(cc)) byCodeStripped.set(cc, p)
+      })
+    }
+    if (p.name) {
+      byNameLower.set(String(p.name).trim().toLowerCase(), p)
+      byNameNormalized.set(normalizeName(p.name), p)
+    }
+  })
+  return { byId, byCodeLower, byNameLower, byCodeStripped, byNameNormalized, productsList: prods ?? [] }
+}
+
 export default function IncomingPage() {
  const navigate = useNavigate()
  const [searchParams] = useSearchParams()
@@ -175,25 +279,13 @@ export default function IncomingPage() {
    // 카탈로그
    const { data: prods } = await supabase.from('products').select('id, code, name, selling_price, color')
      .eq('vendor_id', vendorId).is('deleted_at', null)
-   const byId = new Map<string, any>()
-   const byCode = new Map<string, any>()
-   const byName = new Map<string, any>()
-   ;(prods ?? []).forEach((p: any) => {
-     byId.set(p.id, p)
-     if (p.code) byCode.set(String(p.code).trim().toLowerCase(), p)
-     if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
-   })
+   const idx = buildProductIndex(prods ?? [])
 
    // (상품 × 컬러 × 납품일)별 합치기 — 같은 상품이라도 날짜 다르면 별도 라인
    const lineMap = new Map<string, any>()
    items.forEach((it: any) => {
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
-     let prod = it.product_id ? byId.get(it.product_id) : null
-     if (!prod) {
-       const codeKey = (it.product_code || '').toString().trim().toLowerCase()
-       const nameKey = (it.product_name || '').toString().trim().toLowerCase()
-       prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
-     }
+     const prod = findMatchingProduct(it, idx.byId, idx.byCodeLower, idx.byNameLower, idx.byCodeStripped, idx.byNameNormalized, idx.productsList)
      const colorKey = prod?.color || ''
      const dateKey = it.delivery_date || ''
      const k = `${pKey}__${colorKey}__${dateKey}`   // ★ 납품일 포함
@@ -310,14 +402,7 @@ export default function IncomingPage() {
    // ② 거래처의 상품 카탈로그 (단가 매칭용)
    const { data: prods } = await supabase.from('products').select('id, code, name, selling_price, color')
      .eq('vendor_id', inc.vendor_id).is('deleted_at', null)
-   const byId = new Map<string, any>()
-   const byCode = new Map<string, any>()
-   const byName = new Map<string, any>()
-   ;(prods ?? []).forEach((p: any) => {
-     byId.set(p.id, p)
-     if (p.code) byCode.set(String(p.code).trim().toLowerCase(), p)
-     if (p.name) byName.set(String(p.name).trim().toLowerCase(), p)
-   })
+   const idx = buildProductIndex(prods ?? [])
 
    // period에서 fallback 날짜 (delivery_date 빈 라인을 위해)
    let fallbackDate = todayKR()
@@ -331,12 +416,7 @@ export default function IncomingPage() {
    const lineMap = new Map<string, any>()
    items.forEach((it: any) => {
      const pKey = it.product_id || it.product_code || it.product_name || 'unknown'
-     let prod = it.product_id ? byId.get(it.product_id) : null
-     if (!prod) {
-       const codeKey = (it.product_code || '').toString().trim().toLowerCase()
-       const nameKey = (it.product_name || '').toString().trim().toLowerCase()
-       prod = (codeKey && byCode.get(codeKey)) || (nameKey && byName.get(nameKey)) || null
-     }
+     const prod = findMatchingProduct(it, idx.byId, idx.byCodeLower, idx.byNameLower, idx.byCodeStripped, idx.byNameNormalized, idx.productsList)
      const colorKey = prod?.color || ''
      const dateKey = it.delivery_date || ''
      const k = `${pKey}__${colorKey}__${dateKey}`   // ★ 납품일 포함

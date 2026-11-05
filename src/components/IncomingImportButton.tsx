@@ -4,6 +4,7 @@ import { supabase } from '@/lib/supabase'
 import { Button, Drawer, Badge, Empty, Checkbox } from '@/components/ui'
 import { isAWIncomingFormat, parseAWWorkbook, type AWReceipt } from '@/lib/awImport'
 import { findVendorByFuzzyName } from '@/lib/vendorMatch'
+import { findMatchingProduct, buildProductIndex } from '@/pages/Incoming'
 import type { Vendor } from '@/lib/types'
 
 // 미리보기 각 시트의 "이미 등록 여부" 상태
@@ -135,9 +136,9 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
       // 같은 import 작업 안에서 새로 만들어진 거래처도 캐시에 추가
       const cachedNewVendors: Vendor[] = []
 
-      const { data: productsData } = await supabase.from('products').select('id, code')
-      const productByCode = new Map<string, string>()
-      ;(productsData ?? []).forEach(p => { if (p.code) productByCode.set(p.code, p.id) })
+      // 전체 상품 로드 — vendor 별로 fuzzy 매칭용 인덱스를 아래에서 재구성
+      const { data: productsData } = await supabase.from('products').select('id, code, name, selling_price, color, vendor_id').is('deleted_at', null)
+      const allProducts = productsData ?? []
 
       let mergedCount = 0  // 같은 거래처+기간 입고에 라인 추가한 건수
       let skippedCount = 0 // 이미 동일 라인 있어서 스킵한 건수
@@ -201,6 +202,10 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
           })
         }
 
+        // 이 거래처 상품으로 fuzzy 매칭 인덱스 구성
+        const vendorProducts = allProducts.filter((p: any) => p.vendor_id === vendor!.id)
+        const pIdx = buildProductIndex(vendorProducts)
+
         const newPayload = []
         for (const it of receipt.items) {
           const k = `${it.delivery_date || ''}__${it.product_code || ''}__${it.carton_no ?? ''}__${sizesKey(it.sizes)}`
@@ -208,11 +213,15 @@ export default function IncomingImportButton({ onImported }: { onImported: () =>
             skippedCount++
             continue
           }
-          // 이번 import 안에서도 같은 키 중복 방지 (재실행이 아닌 한 파일 안에선 사이즈 분포까지 일치할 일 거의 없음)
           existingLineKeys.add(k)
+          // 품번/품명으로 fuzzy 매칭 → product_id 자동 연결
+          const matched = findMatchingProduct(
+            { product_code: it.product_code, product_name: it.product_name },
+            pIdx.byId, pIdx.byCodeLower, pIdx.byNameLower, pIdx.byCodeStripped, pIdx.byNameNormalized, pIdx.productsList,
+          )
           newPayload.push({
             incoming_id: incomingId,
-            product_id: productByCode.get(it.product_code) || null,
+            product_id: matched?.id || null,
             product_code: it.product_code || null,
             product_name: it.product_name || null,
             sizes: it.sizes,

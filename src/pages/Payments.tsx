@@ -14,6 +14,11 @@ import { exportSheet } from '@/lib/exportXlsx'
  * - 엑셀 다운로드
  * ───────────────────────────────────────────── */
 
+function todayStr() {
+  const d = new Date()
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
 export default function Payments() {
   const navigate = useNavigate()
   const [payments, setPayments] = useState<Payment[]>([])
@@ -25,6 +30,13 @@ export default function Payments() {
   const [search, setSearch] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [editing, setEditing] = useState<Payment | null>(null)
+  // 빠른 입금 등록 (상단 인라인)
+  const [quickVendor, setQuickVendor] = useState<string>('')
+  const [quickDate, setQuickDate] = useState<string>(todayStr())
+  const [quickAmount, setQuickAmount] = useState<string>('')
+  const [quickMemo, setQuickMemo] = useState<string>('')
+  const [quickInvoiceId, setQuickInvoiceId] = useState<string>('')
+  const [quickSaving, setQuickSaving] = useState(false)
 
   async function load() {
     setLoading(true)
@@ -58,6 +70,44 @@ export default function Payments() {
   function openNew() {
     setEditing(null)
     setModalOpen(true)
+  }
+
+  /** 인라인 빠른 입금 — 폼 입력 → 바로 저장 */
+  async function quickSave() {
+    if (!quickVendor) { alert('거래처를 선택하세요.'); return }
+    const amt = Number(String(quickAmount).replace(/,/g, '')) || 0
+    if (amt <= 0) { alert('금액을 입력하세요.'); return }
+    setQuickSaving(true)
+    const { error } = await supabase.from('payments').insert({
+      vendor_id: quickVendor,
+      paid_date: quickDate || todayStr(),
+      amount: amt,
+      memo: quickMemo || null,
+      invoice_id: quickInvoiceId || null,
+    })
+    setQuickSaving(false)
+    if (error) { alert('등록 실패: ' + error.message); return }
+    // 리셋 (거래처는 유지해서 연속 등록 쉽게)
+    setQuickAmount('')
+    setQuickMemo('')
+    setQuickInvoiceId('')
+    load()
+  }
+
+  /** 특정 미수 계산서 전액 즉시 입금 처리 */
+  async function payInvoiceInFull(inv: Invoice, paidTotal: number) {
+    const remaining = Number(inv.total || 0) - paidTotal
+    if (remaining <= 0) return
+    if (!confirm(`${vendorName(inv.vendor_id)}\n${inv.issue_date} 계산서 잔액 ₩${remaining.toLocaleString()} 전액 입금 처리할까요?`)) return
+    const { error } = await supabase.from('payments').insert({
+      vendor_id: inv.vendor_id,
+      paid_date: todayStr(),
+      amount: remaining,
+      memo: `${inv.issue_date} 계산서 완납`,
+      invoice_id: inv.id,
+    })
+    if (error) { alert('등록 실패: ' + error.message); return }
+    load()
   }
 
   async function handleSave(p: { vendor_id: string; paid_date: string; amount: number; memo: string; invoice_id: string | null }) {
@@ -147,6 +197,140 @@ export default function Payments() {
         <StatCard label="필터 합계" value={`₩${totalFiltered.toLocaleString()}`} hint={`${filtered.length}건`} accent="green" />
         <StatCard label="전체 입금 건수" value={`${payments.length}건`} hint={`${vendors.length}개 거래처`} accent="amber" />
       </div>
+
+      {/* ⚡ 빠른 입금 등록 — 모달 안 띄우고 여기서 바로 처리 */}
+      <div className="bg-emerald-50/50 border-2 border-emerald-200 rounded-2xl p-3 mb-4">
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[13px] font-bold text-emerald-900">⚡ 빠른 입금 등록</span>
+          <span className="text-[11px] text-emerald-700">거래처 → 금액 → Enter</span>
+        </div>
+        <div className="flex items-end gap-2 flex-wrap">
+          <div className="w-56">
+            <label className="text-[10px] text-emerald-800 font-semibold">거래처</label>
+            <VendorSearchSelect
+              value={quickVendor}
+              vendors={vendors}
+              onChange={setQuickVendor}
+              allLabel=""
+              placeholder="🔍 선택"
+            />
+          </div>
+          <div className="w-32">
+            <label className="text-[10px] text-emerald-800 font-semibold">입금일</label>
+            <Input type="date" value={quickDate} onChange={e => setQuickDate(e.target.value)} />
+          </div>
+          <div className="w-36">
+            <label className="text-[10px] text-emerald-800 font-semibold">금액 (₩)</label>
+            <Input
+              type="text"
+              inputMode="numeric"
+              value={quickAmount}
+              onChange={e => {
+                const raw = e.target.value.replace(/[^\d]/g, '')
+                setQuickAmount(raw ? Number(raw).toLocaleString() : '')
+              }}
+              onKeyDown={e => { if (e.key === 'Enter') quickSave() }}
+              placeholder="0"
+              className="text-right tabular-nums font-semibold"
+            />
+          </div>
+          <div className="w-44">
+            <label className="text-[10px] text-emerald-800 font-semibold">연결 계산서 (선택)</label>
+            <select
+              value={quickInvoiceId}
+              onChange={e => setQuickInvoiceId(e.target.value)}
+              className="w-full px-2 py-2 rounded-md border border-zinc-300 text-[12px] bg-white"
+              disabled={!quickVendor}
+            >
+              <option value="">없음 (일반 입금)</option>
+              {invoices.filter(i => i.vendor_id === quickVendor).map(i => (
+                <option key={i.id} value={i.id}>{i.issue_date} · ₩{Number(i.total || 0).toLocaleString()}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex-1 min-w-[160px]">
+            <label className="text-[10px] text-emerald-800 font-semibold">메모 (선택)</label>
+            <Input value={quickMemo} onChange={e => setQuickMemo(e.target.value)}
+              onKeyDown={e => { if (e.key === 'Enter') quickSave() }}
+              placeholder="예: 10월 입금" />
+          </div>
+          <Button onClick={quickSave} disabled={quickSaving || !quickVendor || !quickAmount}>
+            {quickSaving ? '저장 중…' : '💾 입금 등록'}
+          </Button>
+        </div>
+      </div>
+
+      {/* 💸 미수금 있는 계산서 — 바로 완납 처리 */}
+      {(() => {
+        const paidByInvoice = new Map<string, number>()
+        payments.forEach(p => {
+          if (p.invoice_id) paidByInvoice.set(p.invoice_id, (paidByInvoice.get(p.invoice_id) || 0) + Number(p.amount || 0))
+        })
+        const unpaid = invoices
+          .map(i => ({ inv: i, paid: paidByInvoice.get(i.id) || 0 }))
+          .filter(x => Number(x.inv.total || 0) - x.paid > 1)  // 1원 이상 미수
+          .sort((a, b) => (b.inv.issue_date || '').localeCompare(a.inv.issue_date || ''))
+        if (unpaid.length === 0) return null
+        const totalOutstanding = unpaid.reduce((s, x) => s + (Number(x.inv.total || 0) - x.paid), 0)
+        return (
+          <div className="bg-white border border-rose-200 rounded-2xl overflow-hidden mb-4">
+            <div className="px-4 py-2.5 bg-rose-50 border-b border-rose-100 flex items-center justify-between">
+              <h3 className="text-[13px] font-semibold text-rose-800">💸 미수금 계산서 ({unpaid.length}건)</h3>
+              <span className="text-[12px] text-rose-700 tabular-nums font-semibold">총 ₩{totalOutstanding.toLocaleString()}</span>
+            </div>
+            <div className="max-h-56 overflow-y-auto">
+              <table className="w-full text-[12px]">
+                <thead className="bg-zinc-50 sticky top-0">
+                  <tr className="text-left text-[11px] text-zinc-500">
+                    <th className="px-3 py-1.5">발행일</th>
+                    <th className="px-3 py-1.5">거래처</th>
+                    <th className="px-3 py-1.5 text-right">금액</th>
+                    <th className="px-3 py-1.5 text-right">입금</th>
+                    <th className="px-3 py-1.5 text-right">잔액</th>
+                    <th className="px-3 py-1.5 text-right w-28"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {unpaid.slice(0, 50).map(({ inv, paid }) => {
+                    const remain = Number(inv.total || 0) - paid
+                    return (
+                      <tr key={inv.id} className="border-t border-zinc-100">
+                        <td className="px-3 py-1.5 tabular-nums">{inv.issue_date}</td>
+                        <td className="px-3 py-1.5">{vendorName(inv.vendor_id)}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums">₩{Number(inv.total || 0).toLocaleString()}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums text-zinc-500">₩{paid.toLocaleString()}</td>
+                        <td className="px-3 py-1.5 text-right tabular-nums font-semibold text-rose-700">₩{remain.toLocaleString()}</td>
+                        <td className="px-3 py-1.5 text-right">
+                          <button
+                            onClick={() => payInvoiceInFull(inv, paid)}
+                            className="px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-medium"
+                            title="오늘 날짜로 잔액 전액 입금 처리"
+                          >
+                            ✓ 완납 입금
+                          </button>
+                          <button
+                            onClick={() => {
+                              setQuickVendor(inv.vendor_id)
+                              setQuickInvoiceId(inv.id)
+                              setQuickAmount(remain.toLocaleString())
+                              setQuickMemo(`${inv.issue_date} 계산서 입금`)
+                              window.scrollTo({ top: 0, behavior: 'smooth' })
+                            }}
+                            className="ml-1 px-2 py-1 rounded bg-zinc-100 hover:bg-zinc-200 text-zinc-700 text-[11px]"
+                            title="빠른 입금 폼에 자동 채우기"
+                          >
+                            ✎ 부분
+                          </button>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* 거래처별 TOP 5 */}
       {topVendors.length > 0 && (

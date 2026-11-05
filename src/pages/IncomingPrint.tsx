@@ -88,12 +88,23 @@ export default function IncomingPrint() {
     return <div className="p-12 text-center text-zinc-500">불러오는 중…</div>
   }
 
+  // 사이즈 정렬 — XS/S/M/L/XL 등 의류 사이즈 지정 순서
+  const SIZE_ORDER = ['XXS','XS','S','M','L','XL','XXL','2XL','3XL','4XL','5XL','6XL']
+  const sortSizes = (arr: string[]) => [...arr].sort((a, b) => {
+    const ai = SIZE_ORDER.indexOf(a.toUpperCase())
+    const bi = SIZE_ORDER.indexOf(b.toUpperCase())
+    if (ai !== -1 && bi !== -1) return ai - bi
+    if (ai !== -1) return -1
+    if (bi !== -1) return 1
+    return a.localeCompare(b, undefined, { numeric: true })
+  })
+
   // 거래처 사이즈 시스템 (없으면 라인에 들어있는 사이즈들 자동 수집)
   const sizeColumns = (() => {
-    if (vendor?.size_system && vendor.size_system.length > 0) return vendor.size_system
+    if (vendor?.size_system && vendor.size_system.length > 0) return sortSizes(vendor.size_system)
     const set = new Set<string>()
     items.forEach(it => Object.keys(it.sizes || {}).forEach(k => set.add(k)))
-    return Array.from(set).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+    return sortSizes(Array.from(set))
   })()
 
   // 합계

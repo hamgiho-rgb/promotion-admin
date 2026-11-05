@@ -140,7 +140,16 @@ export default function InvoicePrint() {
               const sz = (it as any).sizes as Record<string, number> | null
               if (sz) Object.keys(sz).forEach(k => { if (Number(sz[k]) > 0) sizeKeySet.add(k) })
             })
-            const sizeKeys = Array.from(sizeKeySet).sort((a, b) => a.localeCompare(b, undefined, { numeric: true }))
+            // 사이즈 정렬 — 의류 사이즈 (XS,S,M,L,XL,2XL,3XL …) 는 지정 순서, 그 외는 숫자/가나다
+            const SIZE_ORDER = ['XXS','XS','S','M','L','XL','XXL','2XL','3XL','4XL','5XL','6XL']
+            const sizeKeys = Array.from(sizeKeySet).sort((a, b) => {
+              const ai = SIZE_ORDER.indexOf(a.toUpperCase())
+              const bi = SIZE_ORDER.indexOf(b.toUpperCase())
+              if (ai !== -1 && bi !== -1) return ai - bi
+              if (ai !== -1) return -1
+              if (bi !== -1) return 1
+              return a.localeCompare(b, undefined, { numeric: true })
+            })
             const showSizeColumns = sizeKeys.length > 0
             const showSingleSize = !showSizeColumns && items.some(it => ((it as any).size || '').toString().trim() !== '')
 
