@@ -746,6 +746,29 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  setDirty(true)
  }
 
+ /** 공제/조정 라인 추가 — 퀵비, 할인, 왕복운송비 등 (금액 음수) */
+ function addAdjustmentLine() {
+   const label = prompt('공제/조정 항목 이름 (예: 퀵비 공제, 할인, 운송비)', '퀵비 공제')
+   if (!label) return
+   const amtStr = prompt(`${label} — 공제 금액 (양수로 입력, 자동으로 음수 처리됩니다)`, '20000')
+   if (!amtStr) return
+   const amt = Math.abs(Number(amtStr.replace(/[^\d.-]/g, '')) || 0)
+   if (amt <= 0) { alert('금액을 다시 확인하세요.'); return }
+   setLines(prev => [...prev, {
+     tempId: newTempId(),
+     line_date: form.issue_date || todayKR(),
+     product_id: null,
+     product_name: label,
+     color: '',
+     size: null,
+     sizes: null,
+     quantity: 1,
+     unit_price: -amt,   // 음수 단가 → 공제
+     is_return: false as any,
+   } as any])
+   setDirty(true)
+ }
+
  function updateLine(tempId: string, patch: Partial<LocalLine>) {
  setLines(prev => prev.map(l => l.tempId === tempId ? { ...l, ...patch } : l))
  setDirty(true)
@@ -993,7 +1016,10 @@ function InvoiceDrawer({ open, onClose, editing, vendors, onSaved }: {
  <h3 className="text-[14px] font-semibold text-zinc-900">거래 라인</h3>
  {lines.length > 0 && <span className="text-[11px] text-zinc-500">· {lines.length}건</span>}
  </div>
+ <div className="flex gap-2">
+ <Button size="sm" variant="secondary" onClick={addAdjustmentLine} title="퀵비 공제, 할인 등 음수 라인 추가 (마진과 별개)">− 공제/조정 추가</Button>
  <Button size="sm" onClick={addEmptyLine}>＋ 빈 라인 추가</Button>
+ </div>
  </div>
 
  {lines.length === 0 ? (
